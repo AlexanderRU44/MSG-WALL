@@ -3,46 +3,205 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Msg Wall — стена сообщений</title>
+<title>Msg Wall — terminal</title>
 <style>
-  * { box-sizing: border-box; }
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    max-width: 720px;
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    height: 100%;
+    background: #050805;
+    color: #7dff9a;
+    font-family: "Courier New", Courier, monospace;
+    overflow-x: hidden;
+  }
+
+  .crt {
+    position: relative;
+    max-width: 820px;
     margin: 0 auto;
-    padding: 24px 16px 60px;
-    background: #0f1115;
-    color: #e6e6e6;
+    min-height: 100vh;
+    padding: 32px 24px 80px;
+    background: radial-gradient(ellipse at center, #0a150a 0%, #050805 80%);
+    text-shadow: 0 0 4px rgba(125, 255, 154, 0.8),
+                 0 0 8px rgba(125, 255, 154, 0.4);
+    animation: flicker 6s infinite;
   }
-  header { margin-bottom: 24px; }
-  h1 { font-size: 24px; margin: 0 0 4px; }
-  .slogan { color: #888; font-size: 14px; }
-  .meta { color: #888; font-size: 13px; margin-top: 12px; }
+
+  @keyframes flicker {
+    0%, 100% { opacity: 1; }
+    92%      { opacity: 1; }
+    93%      { opacity: 0.92; }
+    94%      { opacity: 1; }
+    96%      { opacity: 0.96; }
+    97%      { opacity: 1; }
+  }
+
+  /* Сканлайны */
+  .crt::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 100;
+    background: repeating-linear-gradient(
+      to bottom,
+      rgba(0, 0, 0, 0) 0px,
+      rgba(0, 0, 0, 0) 2px,
+      rgba(0, 0, 0, 0.25) 3px,
+      rgba(0, 0, 0, 0.25) 4px
+    );
+    mix-blend-mode: multiply;
+  }
+
+  /* Бегущая рябь */
+  .crt::after {
+    content: "";
+    position: fixed;
+    left: 0;
+    right: 0;
+    height: 80px;
+    top: -100px;
+    pointer-events: none;
+    z-index: 101;
+    background: linear-gradient(
+      to bottom,
+      rgba(125, 255, 154, 0) 0%,
+      rgba(125, 255, 154, 0.06) 50%,
+      rgba(125, 255, 154, 0) 100%
+    );
+    animation: scan 8s linear infinite;
+  }
+
+  @keyframes scan {
+    0%   { top: -100px; }
+    100% { top: 100vh; }
+  }
+
+  /* Виньетка */
+  .vignette {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 99;
+    background: radial-gradient(
+      ellipse at center,
+      rgba(0, 0, 0, 0) 55%,
+      rgba(0, 0, 0, 0.65) 100%
+    );
+  }
+
+  /* Контент */
+  header {
+    margin-bottom: 28px;
+    border-bottom: 1px dashed rgba(125, 255, 154, 0.4);
+    padding-bottom: 16px;
+  }
+  h1 {
+    font-size: 28px;
+    letter-spacing: 4px;
+    text-transform: uppercase;
+  }
+  .slogan {
+    font-size: 13px;
+    letter-spacing: 2px;
+    margin-top: 6px;
+    opacity: 0.75;
+  }
+  .meta {
+    font-size: 12px;
+    letter-spacing: 2px;
+    margin-top: 12px;
+    opacity: 0.7;
+  }
+
+  /* Сообщения */
   .msg {
-    background: #1a1d24;
-    border-left: 3px solid #4a9eff;
+    border-left: 2px solid #7dff9a;
     padding: 10px 14px;
-    margin-bottom: 8px;
-    border-radius: 6px;
-    white-space: pre-wrap;
+    margin-bottom: 14px;
+    background: rgba(125, 255, 154, 0.03);
     word-break: break-word;
-    font-size: 15px;
-    line-height: 1.4;
+    line-height: 1.5;
+    font-size: 14px;
   }
-  .msg .when { color: #777; font-size: 12px; float: right; }
-  .msg .who { color: #4a9eff; font-weight: 600; display: block; margin-bottom: 4px; }
-  .empty { color: #666; text-align: center; padding: 40px 0; }
-  #status { color: #888; font-size: 12px; margin-top: 20px; text-align: center; }
+  .msg .when {
+    float: right;
+    font-size: 11px;
+    opacity: 0.6;
+    letter-spacing: 1px;
+  }
+
+  /* Ник — и обычный текст, и ссылка */
+  .msg .who,
+  .msg a.who {
+    display: block;
+    font-weight: bold;
+    letter-spacing: 1px;
+    margin-bottom: 6px;
+    color: #7dff9a;
+    text-decoration: none;
+    text-shadow: 0 0 4px rgba(125, 255, 154, 0.8),
+                 0 0 8px rgba(125, 255, 154, 0.4);
+    width: fit-content;
+  }
+  .msg a.who:hover {
+    text-decoration: underline;
+    text-shadow: 0 0 6px rgba(125, 255, 154, 1),
+                 0 0 12px rgba(125, 255, 154, 0.7),
+                 0 0 20px rgba(125, 255, 154, 0.4);
+  }
+
+  .msg:hover {
+    background: rgba(125, 255, 154, 0.08);
+    box-shadow: 0 0 12px rgba(125, 255, 154, 0.3);
+  }
+
+  .empty {
+    text-align: center;
+    padding: 60px 0;
+    opacity: 0.5;
+    letter-spacing: 2px;
+  }
+
+  #status {
+    position: fixed;
+    bottom: 12px;
+    left: 0;
+    right: 0;
+    text-align: center;
+    font-size: 11px;
+    letter-spacing: 2px;
+    opacity: 0.55;
+    z-index: 102;
+  }
+
+  /* Мигающий курсор */
+  .cursor {
+    display: inline-block;
+    width: 8px;
+    height: 14px;
+    background: #7dff9a;
+    margin-left: 4px;
+    vertical-align: middle;
+    animation: blink 1s steps(1) infinite;
+  }
+  @keyframes blink {
+    50% { opacity: 0; }
+  }
 </style>
 </head>
 <body>
-  <header>
-    <h1>Msg Wall</h1>
-    <div class="slogan">Напиши — и оно останется.</div>
-    <div class="meta" id="meta">Загрузка…</div>
-  </header>
+  <div class="crt">
+    <header>
+      <h1>MSG&nbsp;WALL<span class="cursor"></span></h1>
+      <div class="slogan">// напиши — и оно останется</div>
+      <div class="meta" id="meta">> загрузка…</div>
+    </header>
 
-  <div id="messages"></div>
+    <div id="messages"></div>
+  </div>
+
+  <div class="vignette"></div>
   <div id="status"></div>
 
 <script>
@@ -53,6 +212,17 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
   })[c]);
+}
+
+function renderAuthor(m) {
+  const name = m.who || "?";
+  // username без @ → строим ссылку на t.me
+  const u = m.username || (name.startsWith("@") ? name.slice(1) : "");
+  if (u) {
+    return `<a class="who" href="https://t.me/${encodeURIComponent(u)}"
+              target="_blank" rel="noopener noreferrer">@${escapeHtml(u)}</a>`;
+  }
+  return `<span class="who">${escapeHtml(name)}</span>`;
 }
 
 function render(lines) {
@@ -68,12 +238,12 @@ function render(lines) {
   }
 
   if (items.length === 0) {
-    box.innerHTML = '<div class="empty">Пока сообщений нет</div>';
-    meta.textContent = "0 сообщений";
+    box.innerHTML = '<div class="empty">> пока сообщений нет_</div>';
+    meta.textContent = "> всего сообщений: 0";
     return;
   }
 
-  meta.textContent = `Всего сообщений: ${items.length}`;
+  meta.textContent = "> всего сообщений: " + items.length;
 
   box.innerHTML = items
     .slice()
@@ -81,7 +251,7 @@ function render(lines) {
     .map(m => `
       <div class="msg">
         <span class="when">${escapeHtml(m.when || "")}</span>
-        <span class="who">${escapeHtml(m.who || "?")}</span>
+        ${renderAuthor(m)}
         ${escapeHtml(m.text || "")}
       </div>
     `)
@@ -95,9 +265,9 @@ async function load() {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const text = await res.text();
     render(text.split("\n"));
-    status.textContent = "Обновлено: " + new Date().toLocaleTimeString();
+    status.textContent = "// обновлено: " + new Date().toLocaleTimeString();
   } catch (e) {
-    status.textContent = "Ошибка загрузки: " + e.message;
+    status.textContent = "// ошибка загрузки: " + e.message;
   }
 }
 
