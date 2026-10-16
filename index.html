@@ -24,8 +24,6 @@
   }
 
   /* ============ CRT-эффекты ============ */
-
-  /* Сканлайны */
   body::before {
     content: "";
     position: fixed;
@@ -42,7 +40,6 @@
     mix-blend-mode: multiply;
   }
 
-  /* Бегущая рябь */
   body::after {
     content: "";
     position: fixed;
@@ -66,7 +63,6 @@
     100% { top: 100vh; }
   }
 
-  /* Виньетка */
   .vignette {
     position: fixed;
     inset: 0;
@@ -79,10 +75,7 @@
     );
   }
 
-  /* Лёгкое мерцание всего экрана */
-  .wrap {
-    animation: flicker 7s infinite;
-  }
+  .wrap { animation: flicker 7s infinite; }
   @keyframes flicker {
     0%, 100% { opacity: 1; }
     92%      { opacity: 1; }
@@ -92,30 +85,52 @@
     97%      { opacity: 1; }
   }
 
-  /* ============ Шапка ============ */
+  /* ============ Шапка — всё по центру ============ */
   header {
-    margin-bottom: 28px;
+    margin-bottom: 32px;
     border-bottom: 1px dashed #333333;
-    padding-bottom: 16px;
+    padding-bottom: 20px;
+    text-align: center;
   }
+
   h1 {
-    font-size: 28px;
-    letter-spacing: 3px;
+    font-size: 30px;
+    letter-spacing: 4px;
     text-transform: uppercase;
     color: #ffffff;
     text-shadow: 0 0 6px rgba(255, 255, 255, 0.25);
+    text-align: center;
   }
+
+  /* Слоган — как приглашение терминала */
   .slogan {
-    font-size: 13px;
+    font-size: 14px;
     letter-spacing: 1px;
-    margin-top: 6px;
+    margin-top: 10px;
     color: #999999;
+    min-height: 20px;
+    text-align: center;
   }
+  .slogan .prompt { color: #51cf66; margin-right: 6px; }
+  .slogan .cursor {
+    display: inline-block;
+    width: 7px;
+    height: 13px;
+    background: #999999;
+    margin-left: 2px;
+    vertical-align: -2px;
+    animation: blink 0.7s steps(1) infinite;
+  }
+  @keyframes blink {
+    50% { opacity: 0; }
+  }
+
   .meta {
     font-size: 12px;
     letter-spacing: 1px;
     margin-top: 12px;
     color: #777777;
+    text-align: center;
   }
 
   /* ============ Сообщения ============ */
@@ -139,7 +154,6 @@
     letter-spacing: 1px;
   }
 
-  /* Ник — цвета пользователя */
   .msg .who,
   .msg a.who {
     display: block;
@@ -150,6 +164,7 @@
     text-decoration: none;
     width: fit-content;
     text-shadow: 0 0 6px var(--accent);
+    cursor: pointer;
   }
   .msg a.who:hover {
     text-decoration: underline;
@@ -181,7 +196,7 @@
   <div class="wrap">
     <header>
       <h1>Msg Wall</h1>
-      <div class="slogan">// напиши — и оно останется</div>
+      <div class="slogan" id="slogan"></div>
       <div class="meta" id="meta">> загрузка…</div>
     </header>
 
@@ -194,32 +209,28 @@
 <script>
 const FILE = "messages.jsonl";
 const REFRESH_MS = 15000;
+const SLOGAN_TEXT = "напиши — и оно останется";
 
-// Палитра: accent — цвет ника/полосы, bg — фон карточки
 const PALETTE = [
-  { accent: "#ff6b6b", bg: "#2a1414" }, // красный
-  { accent: "#ffa94d", bg: "#2a1e10" }, // оранжевый
-  { accent: "#ffd43b", bg: "#2a2410" }, // жёлтый
-  { accent: "#a9e34b", bg: "#1e2a10" }, // лайм
-  { accent: "#51cf66", bg: "#122a17" }, // зелёный
-  { accent: "#38d9a9", bg: "#0f2a24" }, // бирюзовый
-  { accent: "#4dabf7", bg: "#102030" }, // голубой
-  { accent: "#748ffc", bg: "#141a30" }, // синий
-  { accent: "#b197fc", bg: "#1e1830" }, // сиреневый
-  { accent: "#da77f2", bg: "#271430" }, // фиолетовый
-  { accent: "#f783ac", bg: "#2a1420" }, // розовый
-  { accent: "#ced4da", bg: "#1c1f22" }, // серый
+  { accent: "#ff6b6b", bg: "#2a1414" },
+  { accent: "#ffa94d", bg: "#2a1e10" },
+  { accent: "#ffd43b", bg: "#2a2410" },
+  { accent: "#a9e34b", bg: "#1e2a10" },
+  { accent: "#51cf66", bg: "#122a17" },
+  { accent: "#38d9a9", bg: "#0f2a24" },
+  { accent: "#4dabf7", bg: "#102030" },
+  { accent: "#748ffc", bg: "#141a30" },
+  { accent: "#b197fc", bg: "#1e1830" },
+  { accent: "#da77f2", bg: "#271430" },
+  { accent: "#f783ac", bg: "#2a1420" },
+  { accent: "#ced4da", bg: "#1c1f22" },
 ];
 
-// Хэш строки → индекс палитры. Один ник = один цвет всегда.
 function hashIndex(str, mod) {
   let h = 0;
-  for (let i = 0; i < str.length; i++) {
-    h = (h * 31 + str.charCodeAt(i)) | 0;
-  }
+  for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) | 0;
   return Math.abs(h) % mod;
 }
-
 function colorFor(m) {
   const key = (m.username || m.who || m.id || "unknown").toString().toLowerCase();
   return PALETTE[hashIndex(key, PALETTE.length)];
@@ -231,9 +242,16 @@ function escapeHtml(s) {
   })[c]);
 }
 
+function extractUsername(m) {
+  if (m.username) return m.username.replace(/^@/, "");
+  const w = m.who || "";
+  if (w.startsWith("@")) return w.slice(1);
+  return "";
+}
+
 function renderAuthor(m) {
   const name = m.who || "?";
-  const u = m.username || (name.startsWith("@") ? name.slice(1) : "");
+  const u = extractUsername(m);
   if (u) {
     return `<a class="who" href="https://t.me/${encodeURIComponent(u)}"
               target="_blank" rel="noopener noreferrer">@${escapeHtml(u)}</a>`;
@@ -277,6 +295,39 @@ function render(lines) {
     .join("");
 }
 
+// ============ Печать слогана как в терминале ============
+async function sloganLoop() {
+  const el = document.getElementById("slogan");
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const rand = (a, b) => Math.random() * (b - a) + a;
+
+  const PROMPT = '<span class="prompt">&gt;</span> ';
+  const CURSOR = '<span class="cursor"></span>';
+
+  while (true) {
+    // Печатаем с приглашением ">" в начале
+    let typed = "";
+    el.innerHTML = PROMPT + typed + CURSOR;
+    for (let i = 0; i < SLOGAN_TEXT.length; i++) {
+      typed += SLOGAN_TEXT[i];
+      el.innerHTML = PROMPT + typed + CURSOR;
+      await sleep(rand(30, 70));
+    }
+
+    // Пауза — мигает курсор на полной строке
+    await sleep(2200);
+
+    // Стираем (приглашение ">" остаётся до конца)
+    for (let i = typed.length; i > 0; i--) {
+      el.innerHTML = PROMPT + typed.slice(0, i - 1) + CURSOR;
+      await sleep(rand(15, 35));
+    }
+
+    // Пустая пауза
+    await sleep(700);
+  }
+}
+
 async function load() {
   const status = document.getElementById("status");
   try {
@@ -290,6 +341,7 @@ async function load() {
   }
 }
 
+sloganLoop();
 load();
 setInterval(load, REFRESH_MS);
 </script>
