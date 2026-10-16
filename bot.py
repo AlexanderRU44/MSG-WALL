@@ -16,13 +16,13 @@ from telegram.ext import (
 )
 from github import Github, GithubException
 
-# --- Страховка для event loop (на случай Python 3.14) ---
+# --- Event loop guard (for Python 3.14) ---
 try:
     asyncio.get_event_loop()
 except RuntimeError:
     asyncio.set_event_loop(asyncio.new_event_loop())
 
-# --- Конфиг из переменных окружения ---
+# --- Config from environment ---
 TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
 GITHUB_TOKEN = os.environ["GITHUB_TOKEN"]
 REPO_NAME = os.environ["REPO_NAME"]
@@ -32,11 +32,11 @@ FILE_PATH = os.environ.get("FILE_PATH", "messages.jsonl")
 g = Github(GITHUB_TOKEN)
 repo = g.get_repo(REPO_NAME)
 
-# --- Очередь ---
+# --- Queue ---
 queue: asyncio.Queue = asyncio.Queue()
 
 
-# ============ Фейковый HTTP-сервер для Render ============
+# ============ Fake HTTP server for Render ============
 class Ping(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -51,11 +51,11 @@ class Ping(BaseHTTPRequestHandler):
 def run_ping_server():
     port = int(os.environ.get("PORT", 10000))
     server = HTTPServer(("0.0.0.0", port), Ping)
-    print(f"[ping] Слушаю порт {port}")
+    print(f"[ping] Listening on port {port}")
     server.serve_forever()
 
 
-# ============ Работа с GitHub ============
+# ============ GitHub write ============
 
 def append_to_file(line: str) -> None:
     import time
@@ -75,7 +75,7 @@ def append_to_file(line: str) -> None:
             if attempt == 2:
                 raise
             time.sleep(0.5 + attempt)
-    raise RuntimeError("Не удалось записать в GitHub")
+    raise RuntimeError("Could not write to GitHub")
 
 
 async def queue_worker():
@@ -84,30 +84,30 @@ async def queue_worker():
         try:
             await asyncio.to_thread(append_to_file, line)
         except Exception as e:
-            print(f"[queue_worker] Ошибка записи: {e}")
+            print(f"[queue_worker] Write error: {e}")
         finally:
             queue.task_done()
 
 
-# ============ Обработчики команд ============
+# ============ Command handlers ============
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "Я — стена сообщений Msg Wall.\n"
-        "Напиши мне что угодно — и оно останется навсегда.\n\n"
-        "Просто напиши текст и отправь."
+        "I am Msg Wall — a message board.\n"
+        "Send me anything and it will stay forever.\n\n"
+        "Just type a message and hit send."
     )
 
 
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "Как это работает:\n"
-        "1. Ты пишешь сообщение.\n"
-        "2. Оно сохраняется в GitHub.\n"
-        "3. Оно появляется на сайте стены.\n\n"
-        "Команды:\n"
-        "/start — начать\n"
-        "/help — эта справка"
+        "How it works:\n"
+        "1. You write a message.\n"
+        "2. It is saved to GitHub.\n"
+        "3. It appears on the wall website.\n\n"
+        "Commands:\n"
+        "/start — begin\n"
+        "/help — this help"
     )
 
 
@@ -121,28 +121,28 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     record = {
         "when": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
         "id": user.id,
-        "username": username,                                     # без @
-        "who": f"@{username}" if username else user.first_name,   # для отображения
+        "username": username,
+        "who": f"@{username}" if username else user.first_name,
         "text": text,
     }
     line = json.dumps(record, ensure_ascii=False)
 
     await queue.put(line)
-    await update.message.reply_text(f"✅ Сохранено (в очереди: {queue.qsize()})")
+    await update.message.reply_text(f"✅ Saved (queue: {queue.qsize()})")
 
 
-# ============ Запуск и остановка ============
+# ============ Startup / shutdown ============
 
 async def on_startup(app):
     app.bot_data["worker"] = asyncio.create_task(queue_worker())
-    print("[bot] Очередь запущена")
+    print("[bot] Queue started")
 
 
 async def on_shutdown(app):
     if "worker" in app.bot_data:
         await queue.join()
         app.bot_data["worker"].cancel()
-        print("[bot] Очередь остановлена")
+        print("[bot] Queue stopped")
 
 
 def main():
@@ -159,7 +159,7 @@ def main():
     app.add_handler(CommandHandler("help", cmd_help))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    print("[bot] Запускаю polling…")
+    print("[bot] Starting polling…")
     app.run_polling()
 
 
