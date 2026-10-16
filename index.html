@@ -10,7 +10,7 @@
   html, body {
     min-height: 100%;
     background: #0a0a0a;
-    color: #ffffff;
+    color: #d0d0d0;
     font-family: "Courier New", Courier, monospace;
     overflow-x: hidden;
   }
@@ -39,67 +39,51 @@
     );
     mix-blend-mode: multiply;
   }
-
   body::after {
     content: "";
     position: fixed;
-    left: 0;
-    right: 0;
-    height: 100px;
-    top: -120px;
+    left: 0; right: 0;
+    height: 100px; top: -120px;
     pointer-events: none;
     z-index: 101;
     background: linear-gradient(
       to bottom,
-      rgba(255, 255, 255, 0) 0%,
-      rgba(255, 255, 255, 0.045) 50%,
-      rgba(255, 255, 255, 0) 100%
+      rgba(255,255,255,0) 0%,
+      rgba(255,255,255,0.045) 50%,
+      rgba(255,255,255,0) 100%
     );
     animation: scan 8s linear infinite;
   }
-
-  @keyframes scan {
-    0%   { top: -120px; }
-    100% { top: 100vh; }
-  }
+  @keyframes scan { 0% { top: -120px; } 100% { top: 100vh; } }
 
   .vignette {
-    position: fixed;
-    inset: 0;
-    pointer-events: none;
-    z-index: 99;
+    position: fixed; inset: 0; pointer-events: none; z-index: 99;
     background: radial-gradient(
       ellipse at center,
-      rgba(0, 0, 0, 0) 55%,
-      rgba(0, 0, 0, 0.55) 100%
+      rgba(0,0,0,0) 55%,
+      rgba(0,0,0,0.55) 100%
     );
   }
 
   .wrap { animation: flicker 7s infinite; }
   @keyframes flicker {
-    0%, 100% { opacity: 1; }
-    92%      { opacity: 1; }
-    93%      { opacity: 0.94; }
-    94%      { opacity: 1; }
-    96%      { opacity: 0.97; }
-    97%      { opacity: 1; }
+    0%,100% { opacity: 1; }
+    92% { opacity: 1; }
+    93% { opacity: 0.94; }
+    94% { opacity: 1; }
+    96% { opacity: 0.97; }
+    97% { opacity: 1; }
   }
 
-  /* ============ Header — centered ============ */
-  header {
-    margin-bottom: 32px;
-    border-bottom: 1px dashed #333333;
-    padding-bottom: 20px;
-    text-align: center;
-  }
+  /* ============ Terminal header ============ */
+  header { margin-bottom: 24px; text-align: center; }
 
   h1 {
     font-size: 30px;
     letter-spacing: 4px;
     text-transform: uppercase;
     color: #ffffff;
-    text-shadow: 0 0 6px rgba(255, 255, 255, 0.25);
-    text-align: center;
+    text-shadow: 0 0 6px rgba(255,255,255,0.25);
   }
 
   .slogan, .meta {
@@ -114,92 +98,282 @@
 
   .prompt { color: inherit; margin-right: 6px; }
 
-  /* Курсор — только во время печати */
   .cursor {
     display: inline-block;
-    width: 7px;
-    height: 13px;
+    width: 7px; height: 13px;
     background: currentColor;
-    margin-left: 2px;
-    vertical-align: -2px;
+    margin-left: 2px; vertical-align: -2px;
     animation: blink 0.7s steps(1) infinite;
   }
-  @keyframes blink {
-    50% { opacity: 0; }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  /* ============ Main terminal body ============ */
+  #terminal {
+    font-size: 14px;
+    line-height: 1.6;
+    color: #d0d0d0;
   }
 
-  /* ============ Loading placeholder ============ */
+  /* логи-строки в терминале */
+  .tline {
+    word-break: break-word;
+    white-space: pre-wrap;
+  }
+  .tline .dim { color: #666666; }
+  .tline .err { color: #ff6b6b; }
+  .tline .ok  { color: #51cf66; }
+
+  /* loading — центрируется */
   #loading {
     text-align: center;
-    padding: 60px 0;
+    padding: 40px 0;
     color: #888888;
-    font-size: 14px;
-    letter-spacing: 1px;
+    min-height: 60px;
   }
   #loading.hidden { display: none; }
+  #loading .center-line { display: inline-block; }
 
-  /* ============ Messages ============ */
-  #messages {
-    opacity: 0;
-    transition: opacity 0.6s ease;
+  /* ============ Code gate ============ */
+  #gate { display: none; padding: 24px 0 12px; }
+  #gate.visible { display: block; }
+
+  #gate .hint {
+    color: #888888;
+    font-size: 13px;
+    letter-spacing: 1px;
+    margin-bottom: 18px;
+    text-align: center;
   }
-  #messages.visible { opacity: 1; }
+
+  #gate .digits {
+    display: flex;
+    justify-content: center;
+    gap: 14px;
+    margin-bottom: 22px;
+  }
+
+  #gate .digit {
+    width: 46px; height: 60px;
+    border: 1px solid #333333;
+    border-radius: 4px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 30px; color: #ffffff;
+    background: #141414;
+    text-shadow: 0 0 6px rgba(255,255,255,0.35);
+  }
+  #gate .digit.active {
+    border-color: #666666;
+    animation: blink 1s steps(1) infinite;
+  }
+
+  #gate .keypad {
+    display: grid;
+    grid-template-columns: repeat(3, 64px);
+    gap: 10px;
+    justify-content: center;
+  }
+  #gate .keypad button {
+    width: 64px; height: 60px;
+    background: transparent;
+    border: 1px solid #333333;
+    border-radius: 4px;
+    color: #ffffff;
+    font-family: inherit;
+    font-size: 22px;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+    transition: background 0.15s, border-color 0.15s;
+  }
+  #gate .keypad button:hover {
+    border-color: #666666;
+    background: rgba(255,255,255,0.03);
+  }
+  #gate .keypad .action {
+    font-size: 12px; letter-spacing: 1px; color: #999999;
+  }
+
+  /* ============ Messages (as terminal lines) ============ */
+  #messages { margin-top: 8px; }
 
   .msg {
-    padding: 12px 16px;
-    margin-bottom: 14px;
-    background: var(--bg);
-    border-left: 4px solid var(--accent);
-    border-radius: 4px;
+    padding: 6px 0 6px 14px;
+    border-left: 3px solid var(--accent);
+    margin-bottom: 10px;
     word-break: break-word;
     line-height: 1.5;
     font-size: 14px;
     color: #ffffff;
-    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.03),
-                0 0 10px rgba(0, 0, 0, 0.6) inset;
   }
   .msg .when {
-    float: right;
-    font-size: 11px;
-    color: #bbbbbb;
-    letter-spacing: 1px;
+    color: #666666;
+    font-size: 12px;
+    margin-right: 8px;
   }
-
-  .msg .who,
-  .msg a.who {
-    display: block;
+  .msg .who {
     font-weight: bold;
-    letter-spacing: 1px;
-    margin-bottom: 6px;
     color: var(--accent);
     text-decoration: none;
-    width: fit-content;
     text-shadow: 0 0 6px var(--accent);
-    cursor: pointer;
   }
-  .msg a.who:hover {
-    text-decoration: underline;
+  .msg .who:hover { text-decoration: underline; }
+  .msg .text {
+    color: #d0d0d0;
+    margin-left: 6px;
   }
 
-  .empty {
-    text-align: center;
-    padding: 60px 0;
+  /* ============ Input prompt (after unlock) ============ */
+  #input-area {
+    display: none;
+    margin-top: 30px;
+    padding-top: 20px;
+    border-top: 1px dashed #333333;
+  }
+  #input-area.visible { display: block; }
+
+  #input-area .row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  #input-area .input-prompt {
+    color: #888888;
+    user-select: none;
+  }
+
+  #input-area input {
+    flex: 1;
+    min-width: 200px;
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid #333333;
+    color: #ffffff;
+    font-family: inherit;
+    font-size: 14px;
+    padding: 6px 2px;
+    outline: none;
+  }
+  #input-area input:focus { border-bottom-color: #666666; }
+
+  #input-area button {
+    background: transparent;
+    border: 1px solid #333333;
+    color: #999999;
+    font-family: inherit;
+    font-size: 13px;
+    letter-spacing: 1px;
+    padding: 8px 14px;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: color 0.2s, border-color 0.2s;
+  }
+  #input-area button:hover {
+    color: #ffffff;
+    border-color: #666666;
+  }
+  #input-area button:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+
+  #input-area .status {
     color: #666666;
+    font-size: 12px;
+    margin-top: 10px;
+    min-height: 16px;
+  }
+
+  /* ============ Nick modal ============ */
+  #nick-modal {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.85);
+    z-index: 200;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+  #nick-modal.visible { display: flex; }
+
+  #nick-modal .box {
+    background: #0d0d0d;
+    border: 1px solid #333333;
+    border-radius: 6px;
+    padding: 24px;
+    max-width: 420px;
+    width: 100%;
+    text-align: center;
+  }
+  #nick-modal .title {
+    color: #ffffff;
+    font-size: 15px;
+    letter-spacing: 1px;
+    margin-bottom: 16px;
+  }
+  #nick-modal input {
+    width: 100%;
+    background: #141414;
+    border: 1px solid #333333;
+    border-radius: 4px;
+    color: #ffffff;
+    font-family: inherit;
+    font-size: 16px;
+    padding: 10px 12px;
+    outline: none;
+    text-align: center;
     letter-spacing: 1px;
   }
+  #nick-modal input:focus { border-color: #666666; }
+
+  #nick-modal .row {
+    display: flex;
+    gap: 10px;
+    margin-top: 16px;
+  }
+  #nick-modal button {
+    flex: 1;
+    background: transparent;
+    border: 1px solid #333333;
+    border-radius: 4px;
+    color: #999999;
+    font-family: inherit;
+    font-size: 13px;
+    letter-spacing: 1px;
+    padding: 10px 12px;
+    cursor: pointer;
+    transition: color 0.2s, border-color 0.2s;
+  }
+  #nick-modal button.primary { color: #51cf66; border-color: #2c5a3a; }
+  #nick-modal button:hover { color: #ffffff; border-color: #666666; }
+
+  #nick-modal .msg {
+    margin-top: 14px;
+    font-size: 13px;
+    min-height: 18px;
+    color: #888888;
+  }
+  #nick-modal .msg.ok  { color: #51cf66; }
+  #nick-modal .msg.err { color: #ff6b6b; }
 
   #status {
     position: fixed;
-    bottom: 0;
-    left: 0;
-    right: 0;
+    bottom: 0; left: 0; right: 0;
     text-align: center;
     font-size: 11px;
     letter-spacing: 1px;
     color: #777777;
-    background: rgba(10, 10, 10, 0.8);
+    background: rgba(10,10,10,0.8);
     padding: 6px 0;
     z-index: 102;
+  }
+
+  @media (max-width: 480px) {
+    #gate .digit { width: 40px; height: 54px; font-size: 26px; }
+    #gate .keypad { grid-template-columns: repeat(3, 58px); }
+    #gate .keypad button { width: 58px; height: 56px; font-size: 20px; }
   }
 </style>
 </head>
@@ -212,7 +386,54 @@
     </header>
 
     <div id="loading"></div>
+
+    <div id="gate">
+      <div class="hint">enter today's code</div>
+      <div class="digits" id="digits">
+        <div class="digit active"></div>
+        <div class="digit"></div>
+        <div class="digit"></div>
+        <div class="digit"></div>
+      </div>
+      <div class="keypad" id="keypad">
+        <button data-key="1">1</button>
+        <button data-key="2">2</button>
+        <button data-key="3">3</button>
+        <button data-key="4">4</button>
+        <button data-key="5">5</button>
+        <button data-key="6">6</button>
+        <button data-key="7">7</button>
+        <button data-key="8">8</button>
+        <button data-key="9">9</button>
+        <button class="action" data-key="clear">CLR</button>
+        <button data-key="0">0</button>
+        <button class="action" data-key="back">←</button>
+      </div>
+    </div>
+
     <div id="messages"></div>
+
+    <div id="input-area">
+      <div class="row">
+        <span class="input-prompt">&gt;</span>
+        <input id="msg-input" type="text" maxlength="500" placeholder="type a message…" autocomplete="off" />
+        <button id="send-btn">SEND</button>
+        <button id="nick-btn">CHANGE NICK</button>
+      </div>
+      <div class="status" id="input-status"></div>
+    </div>
+  </div>
+
+  <div id="nick-modal">
+    <div class="box">
+      <div class="title">change nick</div>
+      <input id="nick-input" type="text" maxlength="20" placeholder="new nick" autocomplete="off" />
+      <div class="row">
+        <button id="nick-cancel">CANCEL</button>
+        <button id="nick-save" class="primary">SAVE</button>
+      </div>
+      <div class="msg" id="nick-msg"></div>
+    </div>
   </div>
 
   <div class="vignette"></div>
@@ -220,6 +441,8 @@
 
 <script>
 const FILE = "messages.jsonl";
+const NICKS_FILE = "nicks.jsonl";
+const API = "https://msg-wall.onrender.com";
 const REFRESH_MS = 15000;
 const SLOGAN_TEXT = "write it — and it stays";
 
@@ -243,9 +466,8 @@ function hashIndex(str, mod) {
   for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) | 0;
   return Math.abs(h) % mod;
 }
-function colorFor(m) {
-  const key = (m.username || m.who || m.id || "unknown").toString().toLowerCase();
-  return PALETTE[hashIndex(key, PALETTE.length)];
+function colorForHash(h) {
+  return PALETTE[hashIndex(String(h).toLowerCase(), PALETTE.length)];
 }
 
 function escapeHtml(s) {
@@ -254,31 +476,30 @@ function escapeHtml(s) {
   })[c]);
 }
 
-function extractUsername(m) {
-  if (m.username) return m.username.replace(/^@/, "");
-  const w = m.who || "";
-  if (w.startsWith("@")) return w.slice(1);
-  return "";
+// ============ Date/time ============
+function formatLocalFromUTC(whenStr) {
+  if (!whenStr) return "";
+  const iso = whenStr.replace(" ", "T") + "Z";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return whenStr;
+  const pad = n => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ` +
+         `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+function nowLocalString() {
+  const d = new Date();
+  const pad = n => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ` +
+         `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
-function renderAuthor(m) {
-  const name = m.who || "?";
-  const u = extractUsername(m);
-  if (u) {
-    return `<a class="who" href="https://t.me/${encodeURIComponent(u)}"
-              target="_blank" rel="noopener noreferrer">@${escapeHtml(u)}</a>`;
-  }
-  return `<span class="who">${escapeHtml(name)}</span>`;
-}
-
-// ============ Terminal typing helpers ============
+// ============ Typing helpers ============
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const rand = (a, b) => Math.random() * (b - a) + a;
 
 const PROMPT_HTML = '<span class="prompt">&gt;</span> ';
 const CURSOR_HTML = '<span class="cursor"></span>';
 
-// Печатает текст в el. После окончания курсор УБИРАЕТСЯ.
 async function typeInto(el, text, charMin, charMax) {
   let typed = "";
   el.innerHTML = PROMPT_HTML + typed + CURSOR_HTML;
@@ -287,117 +508,354 @@ async function typeInto(el, text, charMin, charMax) {
     el.innerHTML = PROMPT_HTML + typed + CURSOR_HTML;
     await sleep(rand(charMin, charMax));
   }
-  // Курсор убираем — остаётся только текст с приглашением
   el.innerHTML = PROMPT_HTML + typed;
 }
 
-// Печатает без prompt (для "loading…")
-async function typePlain(el, text, charMin, charMax) {
+async function typeCentered(el, text, charMin, charMax) {
+  el.innerHTML = '<span class="center-line"></span>';
+  const line = el.querySelector(".center-line");
   let typed = "";
-  el.innerHTML = typed + CURSOR_HTML;
+  line.innerHTML = typed + CURSOR_HTML;
   for (let i = 0; i < text.length; i++) {
     typed += text[i];
-    el.innerHTML = typed + CURSOR_HTML;
+    line.innerHTML = typed + CURSOR_HTML;
     await sleep(rand(charMin, charMax));
   }
-  el.innerHTML = typed;
+  line.innerHTML = typed;
 }
 
-// ============ Render ============
+// ============ State ============
+let codeValue = "";
+let unlocked = false;
+let sessionCode = null;     // код, под которым зашли
+let myHash = null;
+let myNick = null;
+let nicksMap = {};          // hash -> nick
 let renderedCount = -1;
+let allItems = [];
+
+// ============ DOM ============
+const sloganEl  = document.getElementById("slogan");
+const metaEl    = document.getElementById("meta");
+const loadingEl = document.getElementById("loading");
+const gateEl    = document.getElementById("gate");
+const messagesEl= document.getElementById("messages");
+const digitsEl  = document.getElementById("digits");
+const keypadEl  = document.getElementById("keypad");
+const inputArea = document.getElementById("input-area");
+const msgInput  = document.getElementById("msg-input");
+const sendBtn   = document.getElementById("send-btn");
+const inputStatus = document.getElementById("input-status");
+const nickBtn   = document.getElementById("nick-btn");
+const nickModal = document.getElementById("nick-modal");
+const nickInput = document.getElementById("nick-input");
+const nickMsg   = document.getElementById("nick-msg");
+const nickSave  = document.getElementById("nick-save");
+const nickCancel = document.getElementById("nick-cancel");
+
+// ============ Fetch helpers ============
+async function fetchText(path) {
+  const res = await fetch(path + "?t=" + Date.now(), { cache: "no-store" });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.text();
+}
+
+async function loadMessages() {
+  const text = await fetchText(FILE);
+  const items = [];
+  for (const line of text.split("\n")) {
+    const t = line.trim();
+    if (!t) continue;
+    try { items.push(JSON.parse(t)); }
+    catch { /* ignore */ }
+  }
+  return items;
+}
+
+async function loadNicks() {
+  const map = {};
+  try {
+    const text = await fetchText(NICKS_FILE);
+    for (const line of text.split("\n")) {
+      const t = line.trim();
+      if (!t) continue;
+      try {
+        const rec = JSON.parse(t);
+        if (rec.hash && rec.nick) map[rec.hash] = rec.nick;
+      } catch { /* ignore */ }
+    }
+  } catch { /* file might not exist */ }
+  return map;
+}
+
+// ============ API ============
+async function apiPost(path, payload) {
+  const res = await fetch(API + path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) return { ok: false, reason: "http" };
+  try { return await res.json(); }
+  catch { return { ok: false, reason: "parse" }; }
+}
+
+// ============ Render messages ============
+function authorLabelFor(msg) {
+  const n = nicksMap[msg.ip_hash];
+  if (n) return { text: "@" + n, isNick: true };
+  return { text: "@" + msg.ip_hash, isNick: false };
+}
 
 function buildMessagesHTML(items) {
   return items
     .slice()
     .reverse()
     .map(m => {
-      const c = colorFor(m);
+      const c = colorForHash(m.ip_hash);
+      const a = authorLabelFor(m);
+      const when = formatLocalFromUTC(m.when || "");
       return `
-        <div class="msg" style="--accent:${c.accent}; --bg:${c.bg};">
-          <span class="when">${escapeHtml(m.when || "")}</span>
-          ${renderAuthor(m)}
-          ${escapeHtml(m.text || "")}
+        <div class="msg" style="--accent:${c.accent};">
+          <span class="when">${escapeHtml(when)}</span>
+          <span class="who">${escapeHtml(a.text)}</span>
+          <span class="text">${escapeHtml(m.text || "")}</span>
         </div>
       `;
     })
     .join("");
 }
 
-function parseItems(lines) {
-  const items = [];
-  for (const line of lines) {
-    const t = line.trim();
-    if (!t) continue;
-    try { items.push(JSON.parse(t)); }
-    catch { items.push({ text: t, who: "?", when: "" }); }
+function renderMessages(items) {
+  if (items.length === 0) {
+    messagesEl.innerHTML = '<div class="tline"><span class="dim">&gt; no messages yet_</span></div>';
+  } else {
+    messagesEl.innerHTML = buildMessagesHTML(items);
   }
-  return items;
+  renderedCount = items.length;
 }
 
-// ============ Meta typing (без перезапуска при том же числе) ============
-let lastMetaValue = null;
-async function typeMeta(text) {
-  if (text === lastMetaValue) return;
-  lastMetaValue = text;
-  await typeInto(document.getElementById("meta"), text, 25, 50);
-}
+// ============ Bootstrap ============
+let bootstrapped = false;
+async function bootstrap() {
+  if (bootstrapped) return;
+  bootstrapped = true;
 
-// ============ Main load ============
-const metaEl = document.getElementById("meta");
-const sloganEl = document.getElementById("slogan");
-const loadingEl = document.getElementById("loading");
-const messagesEl = document.getElementById("messages");
+  await typeInto(sloganEl, SLOGAN_TEXT, 30, 70);
+  await sleep(300);
 
-async function load() {
-  const status = document.getElementById("status");
   try {
-    const res = await fetch(FILE + "?t=" + Date.now(), { cache: "no-store" });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const text = await res.text();
-
-    const items = parseItems(text.split("\n"));
-
-    if (renderedCount < 0) {
-      // -------- Первый запуск --------
-      // 1. Слоган
-      await typeInto(sloganEl, SLOGAN_TEXT, 30, 70);
-      await sleep(400);
-
-      // 2. Счётчик
-      await typeInto(metaEl, "total messages: " + items.length, 25, 50);
-      lastMetaValue = "total messages: " + items.length;
-
-      // 3. loading… по центру
-      loadingEl.textContent = "";
-      await typePlain(loadingEl, "loading…", 40, 90);
-      await sleep(500);
-
-      // 4. Прячем loading, проявляем сообщения
-      loadingEl.classList.add("hidden");
-      if (items.length === 0) {
-        messagesEl.innerHTML = '<div class="empty">> no messages yet_</div>';
-      } else {
-        messagesEl.innerHTML = buildMessagesHTML(items);
-      }
-      messagesEl.classList.add("visible");
-      renderedCount = items.length;
-    } else {
-      // -------- Обновление --------
-      if (items.length !== renderedCount) {
-        await typeMeta("total messages: " + items.length);
-        messagesEl.innerHTML = buildMessagesHTML(items);
-        renderedCount = items.length;
-      }
-    }
-
-    status.textContent = "// updated: " + new Date().toLocaleTimeString();
+    allItems = await loadMessages();
+    nicksMap = await loadNicks();
   } catch (e) {
-    status.textContent = "// load error: " + e.message;
+    allItems = []; nicksMap = {};
+  }
+
+  await typeInto(metaEl, "total messages: " + allItems.length, 25, 50);
+
+  gateEl.classList.add("visible");
+  updateDigitsUI();
+}
+
+// ============ Code gate ============
+function updateDigitsUI() {
+  const cells = digitsEl.querySelectorAll(".digit");
+  cells.forEach((cell, i) => {
+    if (i < codeValue.length) {
+      cell.textContent = codeValue[i];
+      cell.classList.remove("active");
+    } else {
+      cell.textContent = "";
+      cell.classList.toggle("active", i === codeValue.length);
+    }
+  });
+}
+
+async function submitCode() {
+  if (codeValue.length < 4) return;
+  inputStatus.textContent = "";
+
+  const code = codeValue;
+  const res = await apiPost("/verify", { code });
+
+  if (!res.ok) {
+    codeValue = "";
+    updateDigitsUI();
+    return;
+  }
+
+  unlocked = true;
+  sessionCode = code;
+  myHash = res.hash;
+  myNick = res.nick;
+
+  codeValue = "";
+  updateDigitsUI();
+  gateEl.classList.remove("visible");
+
+  // loading → messages
+  loadingEl.textContent = "";
+  loadingEl.classList.remove("hidden");
+  await typeCentered(loadingEl, "loading…", 40, 90);
+  await sleep(500);
+  loadingEl.classList.add("hidden");
+
+  renderMessages(allItems);
+  inputArea.classList.add("visible");
+  msgInput.focus();
+}
+
+keypadEl.addEventListener("click", e => {
+  const btn = e.target.closest("button[data-key]");
+  if (!btn) return;
+  const key = btn.dataset.key;
+
+  if (key === "clear") { codeValue = ""; updateDigitsUI(); return; }
+  if (key === "back")  { codeValue = codeValue.slice(0, -1); updateDigitsUI(); return; }
+
+  if (codeValue.length >= 4) return;
+  codeValue += key;
+  updateDigitsUI();
+  if (codeValue.length === 4) setTimeout(submitCode, 200);
+});
+
+document.addEventListener("keydown", e => {
+  if (nickModal.classList.contains("visible")) return;
+  if (!gateEl.classList.contains("visible")) {
+    if (e.key === "Enter" && document.activeElement === msgInput) sendMessage();
+    return;
+  }
+  if (e.key >= "0" && e.key <= "9") {
+    if (codeValue.length < 4) {
+      codeValue += e.key; updateDigitsUI();
+      if (codeValue.length === 4) setTimeout(submitCode, 200);
+    }
+  } else if (e.key === "Backspace") {
+    codeValue = codeValue.slice(0, -1); updateDigitsUI();
+  } else if (e.key === "Escape") {
+    codeValue = ""; updateDigitsUI();
+  }
+});
+
+// ============ Send message ============
+async function sendMessage() {
+  const text = msgInput.value.trim();
+  if (!text || !sessionCode) return;
+
+  sendBtn.disabled = true;
+  inputStatus.textContent = "> sending…";
+
+  const res = await apiPost("/post", { code: sessionCode, text });
+
+  sendBtn.disabled = false;
+
+  if (!res.ok) {
+    const reasons = {
+      code: "code expired, reload page",
+      empty: "message is empty",
+      github: "storage error",
+      http: "server error"
+    };
+    inputStatus.textContent = "> error: " + (reasons[res.reason] || res.reason);
+    return;
+  }
+
+  msgInput.value = "";
+  inputStatus.textContent = "> sent";
+
+  // локально обновим список
+  try {
+    allItems = await loadMessages();
+    nicksMap = await loadNicks();
+    renderMessages(allItems);
+    metaEl.innerHTML = PROMPT_HTML + "total messages: " + allItems.length;
+  } catch (e) { /* ignore */ }
+
+  setTimeout(() => { inputStatus.textContent = ""; }, 2000);
+}
+
+sendBtn.addEventListener("click", sendMessage);
+
+// ============ Change nick ============
+nickBtn.addEventListener("click", () => {
+  nickInput.value = "";
+  nickMsg.textContent = "";
+  nickMsg.className = "msg";
+  nickModal.classList.add("visible");
+  setTimeout(() => nickInput.focus(), 50);
+});
+
+nickCancel.addEventListener("click", () => {
+  nickModal.classList.remove("visible");
+});
+
+nickInput.addEventListener("keydown", e => {
+  if (e.key === "Enter") saveNick();
+  if (e.key === "Escape") nickModal.classList.remove("visible");
+});
+
+async function saveNick() {
+  const nick = nickInput.value.trim();
+  if (!nick) return;
+
+  nickMsg.textContent = "> checking…";
+  nickMsg.className = "msg";
+
+  const res = await apiPost("/nick", { code: sessionCode, nick });
+
+  if (!res.ok) {
+    const reasons = {
+      short: "nick must be 2–20 characters",
+      long: "nick must be 2–20 characters",
+      space: "no spaces allowed",
+      chars: "only letters, digits, _ and -",
+      reserved: "this nick is reserved",
+      taken: "this nick is already taken, try another",
+      cooldown: `wait ${res.wait || 0}s before changing again`,
+      github: "storage error",
+      code: "code expired, reload page",
+      http: "server error"
+    };
+    nickMsg.textContent = "> " + (reasons[res.reason] || res.reason);
+    nickMsg.className = "msg err";
+    return;
+  }
+
+  myNick = res.nick;
+  nickMsg.textContent = `> user ${myHash} changed nick to ${res.nick}`;
+  nickMsg.className = "msg ok";
+
+  // обновим локальную карту ников
+  try {
+    nicksMap = await loadNicks();
+    allItems = await loadMessages();
+    renderMessages(allItems);
+  } catch (e) { /* ignore */ }
+
+  setTimeout(() => nickModal.classList.remove("visible"), 1200);
+}
+
+nickSave.addEventListener("click", saveNick);
+
+// ============ Periodic refresh ============
+async function refresh() {
+  if (!unlocked) return;
+  try {
+    const items = await loadMessages();
+    if (items.length !== renderedCount) {
+      allItems = items;
+      nicksMap = await loadNicks();
+      renderMessages(allItems);
+      metaEl.innerHTML = PROMPT_HTML + "total messages: " + allItems.length;
+    }
+    document.getElementById("status").textContent = "// updated: " + nowLocalString();
+  } catch (e) {
+    document.getElementById("status").textContent = "// load error: " + e.message;
   }
 }
 
-load();
-setInterval(load, REFRESH_MS);
+bootstrap();
+setInterval(refresh, REFRESH_MS);
 </script>
 </body>
 </html>
