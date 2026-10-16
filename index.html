@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -23,7 +23,7 @@
     z-index: 2;
   }
 
-  /* ============ CRT-эффекты ============ */
+  /* ============ CRT effects ============ */
   body::before {
     content: "";
     position: fixed;
@@ -85,7 +85,7 @@
     97%      { opacity: 1; }
   }
 
-  /* ============ Шапка — всё по центру ============ */
+  /* ============ Header — centered ============ */
   header {
     margin-bottom: 32px;
     border-bottom: 1px dashed #333333;
@@ -102,7 +102,6 @@
     text-align: center;
   }
 
-  /* Слоган — как приглашение терминала */
   .slogan {
     font-size: 14px;
     letter-spacing: 1px;
@@ -133,7 +132,7 @@
     text-align: center;
   }
 
-  /* ============ Сообщения ============ */
+  /* ============ Messages ============ */
   .msg {
     padding: 12px 16px;
     margin-bottom: 14px;
@@ -197,7 +196,7 @@
     <header>
       <h1>Msg Wall</h1>
       <div class="slogan" id="slogan"></div>
-      <div class="meta" id="meta">> загрузка…</div>
+      <div class="meta" id="meta">> loading…</div>
     </header>
 
     <div id="messages"></div>
@@ -209,7 +208,7 @@
 <script>
 const FILE = "messages.jsonl";
 const REFRESH_MS = 15000;
-const SLOGAN_TEXT = "напиши — и оно останется";
+const SLOGAN_TEXT = "write it — and it stays";
 
 const PALETTE = [
   { accent: "#ff6b6b", bg: "#2a1414" },
@@ -272,12 +271,12 @@ function render(lines) {
   }
 
   if (items.length === 0) {
-    box.innerHTML = '<div class="empty">> пока сообщений нет_</div>';
-    meta.textContent = "> всего сообщений: 0";
+    box.innerHTML = '<div class="empty">> no messages yet_</div>';
+    meta.textContent = "> total messages: 0";
     return;
   }
 
-  meta.textContent = "> всего сообщений: " + items.length;
+  meta.textContent = "> total messages: " + items.length;
 
   box.innerHTML = items
     .slice()
@@ -295,7 +294,7 @@ function render(lines) {
     .join("");
 }
 
-// ============ Печать слогана как в терминале ============
+// ============ Slogan typing loop ============
 async function sloganLoop() {
   const el = document.getElementById("slogan");
   const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -305,7 +304,6 @@ async function sloganLoop() {
   const CURSOR = '<span class="cursor"></span>';
 
   while (true) {
-    // Печатаем с приглашением ">" в начале
     let typed = "";
     el.innerHTML = PROMPT + typed + CURSOR;
     for (let i = 0; i < SLOGAN_TEXT.length; i++) {
@@ -314,16 +312,13 @@ async function sloganLoop() {
       await sleep(rand(30, 70));
     }
 
-    // Пауза — мигает курсор на полной строке
     await sleep(2200);
 
-    // Стираем (приглашение ">" остаётся до конца)
     for (let i = typed.length; i > 0; i--) {
       el.innerHTML = PROMPT + typed.slice(0, i - 1) + CURSOR;
       await sleep(rand(15, 35));
     }
 
-    // Пустая пауза
     await sleep(700);
   }
 }
@@ -335,9 +330,9 @@ async function load() {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const text = await res.text();
     render(text.split("\n"));
-    status.textContent = "// обновлено: " + new Date().toLocaleTimeString();
+    status.textContent = "// updated: " + new Date().toLocaleTimeString();
   } catch (e) {
-    status.textContent = "// ошибка загрузки: " + e.message;
+    status.textContent = "// load error: " + e.message;
   }
 }
 
