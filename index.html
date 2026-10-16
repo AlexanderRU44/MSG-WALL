@@ -102,20 +102,24 @@
     text-align: center;
   }
 
-  .slogan {
+  .slogan, .meta {
     font-size: 14px;
     letter-spacing: 1px;
-    margin-top: 10px;
     color: #999999;
     min-height: 20px;
     text-align: center;
   }
-  .slogan .prompt { color: #51cf66; margin-right: 6px; }
-  .slogan .cursor {
+  .slogan { margin-top: 10px; }
+  .meta   { margin-top: 6px; font-size: 13px; color: #888888; }
+
+  .prompt { color: inherit; margin-right: 6px; }
+
+  /* Курсор — только во время печати */
+  .cursor {
     display: inline-block;
     width: 7px;
     height: 13px;
-    background: #999999;
+    background: currentColor;
     margin-left: 2px;
     vertical-align: -2px;
     animation: blink 0.7s steps(1) infinite;
@@ -124,15 +128,23 @@
     50% { opacity: 0; }
   }
 
-  .meta {
-    font-size: 12px;
-    letter-spacing: 1px;
-    margin-top: 12px;
-    color: #777777;
+  /* ============ Loading placeholder ============ */
+  #loading {
     text-align: center;
+    padding: 60px 0;
+    color: #888888;
+    font-size: 14px;
+    letter-spacing: 1px;
   }
+  #loading.hidden { display: none; }
 
   /* ============ Messages ============ */
+  #messages {
+    opacity: 0;
+    transition: opacity 0.6s ease;
+  }
+  #messages.visible { opacity: 1; }
+
   .msg {
     padding: 12px 16px;
     margin-bottom: 14px;
@@ -196,9 +208,10 @@
     <header>
       <h1>Msg Wall</h1>
       <div class="slogan" id="slogan"></div>
-      <div class="meta" id="meta">> loading…</div>
+      <div class="meta" id="meta"></div>
     </header>
 
+    <div id="loading"></div>
     <div id="messages"></div>
   </div>
 
@@ -258,27 +271,43 @@ function renderAuthor(m) {
   return `<span class="who">${escapeHtml(name)}</span>`;
 }
 
-function render(lines) {
-  const box = document.getElementById("messages");
-  const meta = document.getElementById("meta");
+// ============ Terminal typing helpers ============
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const rand = (a, b) => Math.random() * (b - a) + a;
 
-  const items = [];
-  for (const line of lines) {
-    const t = line.trim();
-    if (!t) continue;
-    try { items.push(JSON.parse(t)); }
-    catch { items.push({ text: t, who: "?", when: "" }); }
+const PROMPT_HTML = '<span class="prompt">&gt;</span> ';
+const CURSOR_HTML = '<span class="cursor"></span>';
+
+// Печатает текст в el. После окончания курсор УБИРАЕТСЯ.
+async function typeInto(el, text, charMin, charMax) {
+  let typed = "";
+  el.innerHTML = PROMPT_HTML + typed + CURSOR_HTML;
+  for (let i = 0; i < text.length; i++) {
+    typed += text[i];
+    el.innerHTML = PROMPT_HTML + typed + CURSOR_HTML;
+    await sleep(rand(charMin, charMax));
   }
+  // Курсор убираем — остаётся только текст с приглашением
+  el.innerHTML = PROMPT_HTML + typed;
+}
 
-  if (items.length === 0) {
-    box.innerHTML = '<div class="empty">> no messages yet_</div>';
-    meta.textContent = "> total messages: 0";
-    return;
+// Печатает без prompt (для "loading…")
+async function typePlain(el, text, charMin, charMax) {
+  let typed = "";
+  el.innerHTML = typed + CURSOR_HTML;
+  for (let i = 0; i < text.length; i++) {
+    typed += text[i];
+    el.innerHTML = typed + CURSOR_HTML;
+    await sleep(rand(charMin, charMax));
   }
+  el.innerHTML = typed;
+}
 
-  meta.textContent = "> total messages: " + items.length;
+// ============ Render ============
+let renderedCount = -1;
 
-  box.innerHTML = items
+function buildMessagesHTML(items) {
+  return items
     .slice()
     .reverse()
     .map(m => {
@@ -294,34 +323,30 @@ function render(lines) {
     .join("");
 }
 
-// ============ Slogan typing loop ============
-async function sloganLoop() {
-  const el = document.getElementById("slogan");
-  const sleep = ms => new Promise(r => setTimeout(r, ms));
-  const rand = (a, b) => Math.random() * (b - a) + a;
-
-  const PROMPT = '<span class="prompt">&gt;</span> ';
-  const CURSOR = '<span class="cursor"></span>';
-
-  while (true) {
-    let typed = "";
-    el.innerHTML = PROMPT + typed + CURSOR;
-    for (let i = 0; i < SLOGAN_TEXT.length; i++) {
-      typed += SLOGAN_TEXT[i];
-      el.innerHTML = PROMPT + typed + CURSOR;
-      await sleep(rand(30, 70));
-    }
-
-    await sleep(2200);
-
-    for (let i = typed.length; i > 0; i--) {
-      el.innerHTML = PROMPT + typed.slice(0, i - 1) + CURSOR;
-      await sleep(rand(15, 35));
-    }
-
-    await sleep(700);
+function parseItems(lines) {
+  const items = [];
+  for (const line of lines) {
+    const t = line.trim();
+    if (!t) continue;
+    try { items.push(JSON.parse(t)); }
+    catch { items.push({ text: t, who: "?", when: "" }); }
   }
+  return items;
 }
+
+// ============ Meta typing (без перезапуска при том же числе) ============
+let lastMetaValue = null;
+async function typeMeta(text) {
+  if (text === lastMetaValue) return;
+  lastMetaValue = text;
+  await typeInto(document.getElementById("meta"), text, 25, 50);
+}
+
+// ============ Main load ============
+const metaEl = document.getElementById("meta");
+const sloganEl = document.getElementById("slogan");
+const loadingEl = document.getElementById("loading");
+const messagesEl = document.getElementById("messages");
 
 async function load() {
   const status = document.getElementById("status");
@@ -329,14 +354,48 @@ async function load() {
     const res = await fetch(FILE + "?t=" + Date.now(), { cache: "no-store" });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const text = await res.text();
-    render(text.split("\n"));
+
+    const items = parseItems(text.split("\n"));
+
+    if (renderedCount < 0) {
+      // -------- Первый запуск --------
+      // 1. Слоган
+      await typeInto(sloganEl, SLOGAN_TEXT, 30, 70);
+      await sleep(400);
+
+      // 2. Счётчик
+      await typeInto(metaEl, "total messages: " + items.length, 25, 50);
+      lastMetaValue = "total messages: " + items.length;
+
+      // 3. loading… по центру
+      loadingEl.textContent = "";
+      await typePlain(loadingEl, "loading…", 40, 90);
+      await sleep(500);
+
+      // 4. Прячем loading, проявляем сообщения
+      loadingEl.classList.add("hidden");
+      if (items.length === 0) {
+        messagesEl.innerHTML = '<div class="empty">> no messages yet_</div>';
+      } else {
+        messagesEl.innerHTML = buildMessagesHTML(items);
+      }
+      messagesEl.classList.add("visible");
+      renderedCount = items.length;
+    } else {
+      // -------- Обновление --------
+      if (items.length !== renderedCount) {
+        await typeMeta("total messages: " + items.length);
+        messagesEl.innerHTML = buildMessagesHTML(items);
+        renderedCount = items.length;
+      }
+    }
+
     status.textContent = "// updated: " + new Date().toLocaleTimeString();
   } catch (e) {
     status.textContent = "// load error: " + e.message;
   }
 }
 
-sloganLoop();
 load();
 setInterval(load, REFRESH_MS);
 </script>
