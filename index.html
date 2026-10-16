@@ -75,7 +75,6 @@
     97% { opacity: 1; }
   }
 
-  /* ============ Terminal header ============ */
   header { margin-bottom: 24px; text-align: center; }
 
   h1 {
@@ -107,14 +106,6 @@
   }
   @keyframes blink { 50% { opacity: 0; } }
 
-  /* ============ Main terminal body ============ */
-  #terminal {
-    font-size: 14px;
-    line-height: 1.6;
-    color: #d0d0d0;
-  }
-
-  /* логи-строки в терминале */
   .tline {
     word-break: break-word;
     white-space: pre-wrap;
@@ -123,7 +114,6 @@
   .tline .err { color: #ff6b6b; }
   .tline .ok  { color: #51cf66; }
 
-  /* loading — центрируется */
   #loading {
     text-align: center;
     padding: 40px 0;
@@ -133,7 +123,6 @@
   #loading.hidden { display: none; }
   #loading .center-line { display: inline-block; }
 
-  /* ============ Code gate ============ */
   #gate { display: none; padding: 24px 0 12px; }
   #gate.visible { display: block; }
 
@@ -193,7 +182,6 @@
     font-size: 12px; letter-spacing: 1px; color: #999999;
   }
 
-  /* ============ Messages (as terminal lines) ============ */
   #messages { margin-top: 8px; }
 
   .msg {
@@ -222,7 +210,6 @@
     margin-left: 6px;
   }
 
-  /* ============ Input prompt (after unlock) ============ */
   #input-area {
     display: none;
     margin-top: 30px;
@@ -285,7 +272,6 @@
     min-height: 16px;
   }
 
-  /* ============ Nick modal ============ */
   #nick-modal {
     display: none;
     position: fixed;
@@ -440,25 +426,28 @@
   <div id="status"></div>
 
 <script>
-const FILE = "messages.jsonl";
-const NICKS_FILE = "nicks.jsonl";
+// ============ Data source: ветка data через raw.githubusercontent ============
+const RAW = "https://raw.githubusercontent.com/AlexanderRU44/MSG-WALL/data";
+const FILE = RAW + "/messages.jsonl";
+const NICKS_FILE = RAW + "/nicks.jsonl";
+
 const API = "https://msg-wall.onrender.com";
-const REFRESH_MS = 15000;
+const REFRESH_MS = 5000;
 const SLOGAN_TEXT = "write it — and it stays";
 
 const PALETTE = [
-  { accent: "#ff6b6b", bg: "#2a1414" },
-  { accent: "#ffa94d", bg: "#2a1e10" },
-  { accent: "#ffd43b", bg: "#2a2410" },
-  { accent: "#a9e34b", bg: "#1e2a10" },
-  { accent: "#51cf66", bg: "#122a17" },
-  { accent: "#38d9a9", bg: "#0f2a24" },
-  { accent: "#4dabf7", bg: "#102030" },
-  { accent: "#748ffc", bg: "#141a30" },
-  { accent: "#b197fc", bg: "#1e1830" },
-  { accent: "#da77f2", bg: "#271430" },
-  { accent: "#f783ac", bg: "#2a1420" },
-  { accent: "#ced4da", bg: "#1c1f22" },
+  { accent: "#ff6b6b" },
+  { accent: "#ffa94d" },
+  { accent: "#ffd43b" },
+  { accent: "#a9e34b" },
+  { accent: "#51cf66" },
+  { accent: "#38d9a9" },
+  { accent: "#4dabf7" },
+  { accent: "#748ffc" },
+  { accent: "#b197fc" },
+  { accent: "#da77f2" },
+  { accent: "#f783ac" },
+  { accent: "#ced4da" },
 ];
 
 function hashIndex(str, mod) {
@@ -476,7 +465,6 @@ function escapeHtml(s) {
   })[c]);
 }
 
-// ============ Date/time ============
 function formatLocalFromUTC(whenStr) {
   if (!whenStr) return "";
   const iso = whenStr.replace(" ", "T") + "Z";
@@ -493,7 +481,7 @@ function nowLocalString() {
          `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
-// ============ Typing helpers ============
+// ============ Typing ============
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const rand = (a, b) => Math.random() * (b - a) + a;
 
@@ -527,10 +515,10 @@ async function typeCentered(el, text, charMin, charMax) {
 // ============ State ============
 let codeValue = "";
 let unlocked = false;
-let sessionCode = null;     // код, под которым зашли
+let sessionCode = null;
 let myHash = null;
 let myNick = null;
-let nicksMap = {};          // hash -> nick
+let nicksMap = {};
 let renderedCount = -1;
 let allItems = [];
 
@@ -553,7 +541,7 @@ const nickMsg   = document.getElementById("nick-msg");
 const nickSave  = document.getElementById("nick-save");
 const nickCancel = document.getElementById("nick-cancel");
 
-// ============ Fetch helpers ============
+// ============ Fetch ============
 async function fetchText(path) {
   const res = await fetch(path + "?t=" + Date.now(), { cache: "no-store" });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -600,11 +588,11 @@ async function apiPost(path, payload) {
   catch { return { ok: false, reason: "parse" }; }
 }
 
-// ============ Render messages ============
+// ============ Render ============
 function authorLabelFor(msg) {
   const n = nicksMap[msg.ip_hash];
-  if (n) return { text: "@" + n, isNick: true };
-  return { text: "@" + msg.ip_hash, isNick: false };
+  if (n) return { text: "@" + n };
+  return { text: "@" + msg.ip_hash };
 }
 
 function buildMessagesHTML(items) {
@@ -673,7 +661,6 @@ function updateDigitsUI() {
 
 async function submitCode() {
   if (codeValue.length < 4) return;
-  inputStatus.textContent = "";
 
   const code = codeValue;
   const res = await apiPost("/verify", { code });
@@ -693,12 +680,17 @@ async function submitCode() {
   updateDigitsUI();
   gateEl.classList.remove("visible");
 
-  // loading → messages
   loadingEl.textContent = "";
   loadingEl.classList.remove("hidden");
   await typeCentered(loadingEl, "loading…", 40, 90);
   await sleep(500);
   loadingEl.classList.add("hidden");
+
+  // после разблокировки — свежие данные
+  try {
+    allItems = await loadMessages();
+    nicksMap = await loadNicks();
+  } catch (e) { /* ignore */ }
 
   renderMessages(allItems);
   inputArea.classList.add("visible");
@@ -737,7 +729,7 @@ document.addEventListener("keydown", e => {
   }
 });
 
-// ============ Send message ============
+// ============ Send ============
 async function sendMessage() {
   const text = msgInput.value.trim();
   if (!text || !sessionCode) return;
@@ -763,7 +755,8 @@ async function sendMessage() {
   msgInput.value = "";
   inputStatus.textContent = "> sent";
 
-  // локально обновим список
+  // ждём немного, чтобы raw обновился, и перечитываем
+  await sleep(1200);
   try {
     allItems = await loadMessages();
     nicksMap = await loadNicks();
@@ -776,7 +769,7 @@ async function sendMessage() {
 
 sendBtn.addEventListener("click", sendMessage);
 
-// ============ Change nick ============
+// ============ Nick ============
 nickBtn.addEventListener("click", () => {
   nickInput.value = "";
   nickMsg.textContent = "";
@@ -825,7 +818,7 @@ async function saveNick() {
   nickMsg.textContent = `> user ${myHash} changed nick to ${res.nick}`;
   nickMsg.className = "msg ok";
 
-  // обновим локальную карту ников
+  await sleep(1200);
   try {
     nicksMap = await loadNicks();
     allItems = await loadMessages();
