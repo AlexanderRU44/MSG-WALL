@@ -1,0 +1,2 @@
+python-telegram-bot==21.6
+PyGithub==2.5.0
