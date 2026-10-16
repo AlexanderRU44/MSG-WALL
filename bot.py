@@ -16,10 +16,16 @@ from telegram.ext import (
 )
 from github import Github, GithubException
 
+# --- Страховка для event loop (на случай Python 3.14) ---
+try:
+    asyncio.get_event_loop()
+except RuntimeError:
+    asyncio.set_event_loop(asyncio.new_event_loop())
+
 # --- Конфиг из переменных окружения ---
 TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
 GITHUB_TOKEN = os.environ["GITHUB_TOKEN"]
-REPO_NAME = os.environ["REPO_NAME"]              # например "user/msg-wall"
+REPO_NAME = os.environ["REPO_NAME"]
 FILE_PATH = os.environ.get("FILE_PATH", "messages.jsonl")
 
 # --- GitHub ---
@@ -31,10 +37,6 @@ queue: asyncio.Queue = asyncio.Queue()
 
 
 # ============ Фейковый HTTP-сервер для Render ============
-# Render ждёт, что сервис откроет порт, иначе убивает его.
-# Бот работает через long polling и порт ему не нужен.
-# Поэтому поднимаем пустой HTTP-сервер в фоне — только чтобы «занять» порт.
-
 class Ping(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -43,7 +45,7 @@ class Ping(BaseHTTPRequestHandler):
         self.wfile.write(b"ok")
 
     def log_message(self, *args):
-        pass  # не засоряем логи
+        pass
 
 
 def run_ping_server():
@@ -56,7 +58,6 @@ def run_ping_server():
 # ============ Работа с GitHub ============
 
 def append_to_file(line: str) -> None:
-    """Синхронная запись строки в файл на GitHub. С ретраями на конфликт sha."""
     import time
     for attempt in range(3):
         try:
@@ -78,7 +79,6 @@ def append_to_file(line: str) -> None:
 
 
 async def queue_worker():
-    """Фоновая задача: берёт сообщения из очереди и пишет по одному."""
     while True:
         line = await queue.get()
         try:
@@ -144,10 +144,8 @@ async def on_shutdown(app):
 
 
 def main():
-    # 1. Запускаем фейковый HTTP-сервер в фоне — чтобы Render видел открытый порт
     threading.Thread(target=run_ping_server, daemon=True).start()
 
-    # 2. Запускаем Telegram-бота
     app = (
         ApplicationBuilder()
         .token(TELEGRAM_TOKEN)
