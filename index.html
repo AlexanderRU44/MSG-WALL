@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Msg Wall — стена сообщений</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 24px 16px 60px;
+    background: #0f1115;
+    color: #e6e6e6;
+  }
+  header { margin-bottom: 24px; }
+  h1 { font-size: 24px; margin: 0 0 4px; }
+  .slogan { color: #888; font-size: 14px; }
+  .meta { color: #888; font-size: 13px; margin-top: 12px; }
+  .msg {
+    background: #1a1d24;
+    border-left: 3px solid #4a9eff;
+    padding: 10px 14px;
+    margin-bottom: 8px;
+    border-radius: 6px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 15px;
+    line-height: 1.4;
+  }
+  .msg .when { color: #777; font-size: 12px; float: right; }
+  .msg .who { color: #4a9eff; font-weight: 600; display: block; margin-bottom: 4px; }
+  .empty { color: #666; text-align: center; padding: 40px 0; }
+  #status { color: #888; font-size: 12px; margin-top: 20px; text-align: center; }
+</style>
+</head>
+<body>
+  <header>
+    <h1>Msg Wall</h1>
+    <div class="slogan">Напиши — и оно останется.</div>
+    <div class="meta" id="meta">Загрузка…</div>
+  </header>
+
+  <div id="messages"></div>
+  <div id="status"></div>
+
+<script>
+const FILE = "messages.jsonl";
+const REFRESH_MS = 15000;
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+  })[c]);
+}
+
+function render(lines) {
+  const box = document.getElementById("messages");
+  const meta = document.getElementById("meta");
+
+  const items = [];
+  for (const line of lines) {
+    const t = line.trim();
+    if (!t) continue;
+    try { items.push(JSON.parse(t)); }
+    catch { items.push({ text: t, who: "?", when: "" }); }
+  }
+
+  if (items.length === 0) {
+    box.innerHTML = '<div class="empty">Пока сообщений нет</div>';
+    meta.textContent = "0 сообщений";
+    return;
+  }
+
+  meta.textContent = `Всего сообщений: ${items.length}`;
+
+  box.innerHTML = items
+    .slice()
+    .reverse()
+    .map(m => `
+      <div class="msg">
+        <span class="when">${escapeHtml(m.when || "")}</span>
+        <span class="who">${escapeHtml(m.who || "?")}</span>
+        ${escapeHtml(m.text || "")}
+      </div>
+    `)
+    .join("");
+}
+
+async function load() {
+  const status = document.getElementById("status");
+  try {
+    const res = await fetch(FILE + "?t=" + Date.now(), { cache: "no-store" });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const text = await res.text();
+    render(text.split("\n"));
+    status.textContent = "Обновлено: " + new Date().toLocaleTimeString();
+  } catch (e) {
+    status.textContent = "Ошибка загрузки: " + e.message;
+  }
+}
+
+load();
+setInterval(load, REFRESH_MS);
+</script>
+</body>
+</html>
