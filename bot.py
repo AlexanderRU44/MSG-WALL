@@ -26,17 +26,20 @@ except RuntimeError:
 TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
 GITHUB_TOKEN   = os.environ["GITHUB_TOKEN"]
 REPO_NAME      = os.environ["REPO_NAME"]
-MESSAGES_PATH  = os.environ.get("FILE_PATH", "messages.jsonl")
-NICKS_PATH     = "nicks.jsonl"
 SECRET_SALT    = os.environ.get("SECRET_SALT", "change-me-please")
 
 # --- GitHub ---
 g = Github(GITHUB_TOKEN)
 repo = g.get_repo(REPO_NAME)
 
+# --- Branches ---
+DATA_BRANCH    = "data"
+MESSAGES_PATH  = os.environ.get("FILE_PATH", "messages.jsonl")
+NICKS_PATH     = "nicks.jsonl"
+
 # --- Nick change rate limit (in-memory) ---
-nick_last_change = {}  # ip_hash -> timestamp
-NICK_COOLDOWN = 600    # 10 минут
+nick_last_change = {}
+NICK_COOLDOWN = 600
 
 # --- Reserved nicks ---
 RESERVED = {"admin", "unknown", "anon", "system", "root", "me", "null"}
@@ -75,9 +78,9 @@ def valid_nick(nick: str) -> tuple[bool, str]:
 
 
 def get_contents(path: str) -> tuple[str, str | None]:
-    """Возвращает (содержимое, sha) или ('', None), если файла нет."""
+    """Читаем файл из ветки data."""
     try:
-        f = repo.get_contents(path)
+        f = repo.get_contents(path, ref=DATA_BRANCH)
         return base64.b64decode(f.content).decode("utf-8"), f.sha
     except GithubException as e:
         if e.status == 404:
@@ -86,14 +89,15 @@ def get_contents(path: str) -> tuple[str, str | None]:
 
 
 def write_contents(path: str, content: str, sha: str | None, message: str):
+    """Пишем в ветку data."""
     if sha is None:
-        repo.create_file(path, message, content)
+        repo.create_file(path, message, content, branch=DATA_BRANCH)
     else:
-        repo.update_file(path, message, content, sha=sha)
+        repo.update_file(path, message, content, sha=sha, branch=DATA_BRANCH)
 
 
 def append_to_file(path: str, line: str):
-    """Дописать строку в файл на GitHub (с ретраями)."""
+    """Дописать строку в файл в ветке data (с ретраями)."""
     for attempt in range(3):
         try:
             current, sha = get_contents(path)
@@ -110,7 +114,6 @@ def append_to_file(path: str, line: str):
 
 
 def find_nick_for_hash(h: str) -> str | None:
-    """Возвращает ник для хэша или None."""
     content, _ = get_contents(NICKS_PATH)
     for line in content.splitlines():
         line = line.strip()
@@ -126,7 +129,6 @@ def find_nick_for_hash(h: str) -> str | None:
 
 
 def is_nick_taken(nick: str, exclude_hash: str) -> bool:
-    """Занят ли ник кем-то другим."""
     content, _ = get_contents(NICKS_PATH)
     for line in content.splitlines():
         line = line.strip()
@@ -142,7 +144,6 @@ def is_nick_taken(nick: str, exclude_hash: str) -> bool:
 
 
 def set_nick(h: str, nick: str):
-    """Установить/обновить ник для хэша. Старая запись заменяется."""
     content, sha = get_contents(NICKS_PATH)
     lines = []
     for line in content.splitlines():
@@ -154,9 +155,8 @@ def set_nick(h: str, nick: str):
         except json.JSONDecodeError:
             continue
         if rec.get("hash") == h:
-            continue  # удаляем старую запись этого хэша
+            continue
         lines.append(json.dumps(rec, ensure_ascii=False))
-    # добавляем новую
     lines.append(json.dumps({
         "hash": h,
         "nick": nick,
@@ -169,7 +169,6 @@ def set_nick(h: str, nick: str):
 # ============ HTTP server ============
 
 def get_client_ip(handler) -> str:
-    """Достаём реальный IP клиента, учитывая прокси Render."""
     xff = handler.headers.get("X-Forwarded-For", "")
     if xff:
         return xff.split(",")[0].strip()
@@ -178,7 +177,6 @@ def get_client_ip(handler) -> str:
 
 class Handler(BaseHTTPRequestHandler):
 
-    # ---- helpers ----
     def _send_json(self, data: dict, status: int = 200):
         body = json.dumps(data).encode()
         self.send_response(status)
@@ -197,9 +195,7 @@ class Handler(BaseHTTPRequestHandler):
         except json.JSONDecodeError:
             return {}
 
-    # ---- routes ----
     def do_GET(self):
-        # пинг для Render
         self.send_response(200)
         self.send_header("Content-Type", "text/plain")
         self.end_headers()
@@ -218,7 +214,6 @@ class Handler(BaseHTTPRequestHandler):
         data = self._read_json()
         code = str(data.get("code", "")).strip()
 
-        # все три эндпоинта требуют верный код
         if code != daily_code():
             return self._send_json({"ok": False, "reason": "code"})
 
@@ -254,7 +249,6 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json({"ok": False, "reason": result})
             nick = result
 
-            # cooldown
             now = time.time()
             last = nick_last_change.get(h, 0)
             if now - last < NICK_COOLDOWN:
@@ -264,7 +258,6 @@ class Handler(BaseHTTPRequestHandler):
                     "wait": int(NICK_COOLDOWN - (now - last))
                 })
 
-            # занято?
             if is_nick_taken(nick, h):
                 return self._send_json({"ok": False, "reason": "taken"})
 
@@ -332,6 +325,7 @@ def main():
     app.add_handler(CommandHandler("code", cmd_code))
 
     print(f"[bot] starting. code for today: {daily_code()}")
+    print(f"[bot] data branch: {DATA_BRANCH}")
     app.run_polling()
 
 
