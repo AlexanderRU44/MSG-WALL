@@ -21,11 +21,10 @@
     padding: 32px 24px 80px;
     position: relative;
     z-index: 2;
+    animation: flicker 7s infinite;
   }
 
   /* ============ CRT-эффекты ============ */
-
-  /* Сканлайны */
   body::before {
     content: "";
     position: fixed;
@@ -42,7 +41,6 @@
     mix-blend-mode: multiply;
   }
 
-  /* Бегущая рябь */
   body::after {
     content: "";
     position: fixed;
@@ -66,7 +64,6 @@
     100% { top: 100vh; }
   }
 
-  /* Виньетка */
   .vignette {
     position: fixed;
     inset: 0;
@@ -79,10 +76,6 @@
     );
   }
 
-  /* Лёгкое мерцание всего экрана */
-  .wrap {
-    animation: flicker 7s infinite;
-  }
   @keyframes flicker {
     0%, 100% { opacity: 1; }
     92%      { opacity: 1; }
@@ -104,6 +97,23 @@
     text-transform: uppercase;
     color: #ffffff;
     text-shadow: 0 0 6px rgba(255, 255, 255, 0.25);
+  }
+  .live {
+    display: inline-block;
+    font-size: 11px;
+    letter-spacing: 2px;
+    color: #ff4d4d;
+    border: 1px solid #ff4d4d;
+    padding: 2px 8px;
+    margin-left: 10px;
+    vertical-align: middle;
+    border-radius: 2px;
+    text-shadow: 0 0 6px rgba(255, 77, 77, 0.8);
+    animation: livePulse 1.4s ease-in-out infinite;
+  }
+  @keyframes livePulse {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.35; }
   }
   .slogan {
     font-size: 13px;
@@ -131,7 +141,17 @@
     color: #ffffff;
     box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.03),
                 0 0 10px rgba(0, 0, 0, 0.6) inset;
+    opacity: 0;
+    transform: translateY(8px);
   }
+  /* Появление */
+  .msg.show {
+    animation: msgIn 0.35s ease-out forwards;
+  }
+  @keyframes msgIn {
+    to { opacity: 1; transform: translateY(0); }
+  }
+
   .msg .when {
     float: right;
     font-size: 11px;
@@ -139,7 +159,6 @@
     letter-spacing: 1px;
   }
 
-  /* Ник — цвета пользователя */
   .msg .who,
   .msg a.who {
     display: block;
@@ -153,6 +172,25 @@
   }
   .msg a.who:hover {
     text-decoration: underline;
+  }
+
+  /* Текст сообщения — печатается */
+  .msg .text {
+    display: inline;
+  }
+  /* Курсор-палочка в конце, пока идёт печать */
+  .msg .cursor {
+    display: inline-block;
+    width: 8px;
+    height: 14px;
+    background: var(--accent);
+    margin-left: 2px;
+    vertical-align: -2px;
+    animation: blink 0.7s steps(1) infinite;
+    box-shadow: 0 0 6px var(--accent);
+  }
+  @keyframes blink {
+    50% { opacity: 0; }
   }
 
   .empty {
@@ -180,7 +218,7 @@
 <body>
   <div class="wrap">
     <header>
-      <h1>Msg Wall</h1>
+      <h1>Msg Wall<span class="live">● LIVE</span></h1>
       <div class="slogan">// напиши — и оно останется</div>
       <div class="meta" id="meta">> загрузка…</div>
     </header>
@@ -195,31 +233,32 @@
 const FILE = "messages.jsonl";
 const REFRESH_MS = 15000;
 
-// Палитра: accent — цвет ника/полосы, bg — фон карточки
+// Параметры эффекта печати
+const CHAR_DELAY_MIN = 25;   // мс между буквами (мин)
+const CHAR_DELAY_MAX = 60;   // мс между буквами (макс)
+const MSG_DELAY_MIN  = 300;  // мс между сообщениями (мин)
+const MSG_DELAY_MAX  = 900;  // мс между сообщениями (макс)
+
 const PALETTE = [
-  { accent: "#ff6b6b", bg: "#2a1414" }, // красный
-  { accent: "#ffa94d", bg: "#2a1e10" }, // оранжевый
-  { accent: "#ffd43b", bg: "#2a2410" }, // жёлтый
-  { accent: "#a9e34b", bg: "#1e2a10" }, // лайм
-  { accent: "#51cf66", bg: "#122a17" }, // зелёный
-  { accent: "#38d9a9", bg: "#0f2a24" }, // бирюзовый
-  { accent: "#4dabf7", bg: "#102030" }, // голубой
-  { accent: "#748ffc", bg: "#141a30" }, // синий
-  { accent: "#b197fc", bg: "#1e1830" }, // сиреневый
-  { accent: "#da77f2", bg: "#271430" }, // фиолетовый
-  { accent: "#f783ac", bg: "#2a1420" }, // розовый
-  { accent: "#ced4da", bg: "#1c1f22" }, // серый
+  { accent: "#ff6b6b", bg: "#2a1414" },
+  { accent: "#ffa94d", bg: "#2a1e10" },
+  { accent: "#ffd43b", bg: "#2a2410" },
+  { accent: "#a9e34b", bg: "#1e2a10" },
+  { accent: "#51cf66", bg: "#122a17" },
+  { accent: "#38d9a9", bg: "#0f2a24" },
+  { accent: "#4dabf7", bg: "#102030" },
+  { accent: "#748ffc", bg: "#141a30" },
+  { accent: "#b197fc", bg: "#1e1830" },
+  { accent: "#da77f2", bg: "#271430" },
+  { accent: "#f783ac", bg: "#2a1420" },
+  { accent: "#ced4da", bg: "#1c1f22" },
 ];
 
-// Хэш строки → индекс палитры. Один ник = один цвет всегда.
 function hashIndex(str, mod) {
   let h = 0;
-  for (let i = 0; i < str.length; i++) {
-    h = (h * 31 + str.charCodeAt(i)) | 0;
-  }
+  for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) | 0;
   return Math.abs(h) % mod;
 }
-
 function colorFor(m) {
   const key = (m.username || m.who || m.id || "unknown").toString().toLowerCase();
   return PALETTE[hashIndex(key, PALETTE.length)];
@@ -231,7 +270,10 @@ function escapeHtml(s) {
   })[c]);
 }
 
-function renderAuthor(m) {
+function rand(min, max) { return Math.random() * (max - min) + min; }
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+function authorHTML(m) {
   const name = m.who || "?";
   const u = m.username || (name.startsWith("@") ? name.slice(1) : "");
   if (u) {
@@ -241,41 +283,69 @@ function renderAuthor(m) {
   return `<span class="who">${escapeHtml(name)}</span>`;
 }
 
-function render(lines) {
-  const box = document.getElementById("messages");
-  const meta = document.getElementById("meta");
-
-  const items = [];
-  for (const line of lines) {
-    const t = line.trim();
-    if (!t) continue;
-    try { items.push(JSON.parse(t)); }
-    catch { items.push({ text: t, who: "?", when: "" }); }
+// Печатаем букву за буквой в .text внутри карточки
+async function typeText(node, text, accent) {
+  for (let i = 0; i < text.length; i++) {
+    node.textContent += text[i];
+    // случайная задержка между символами
+    await sleep(rand(CHAR_DELAY_MIN, CHAR_DELAY_MAX));
   }
-
-  if (items.length === 0) {
-    box.innerHTML = '<div class="empty">> пока сообщений нет_</div>';
-    meta.textContent = "> всего сообщений: 0";
-    return;
-  }
-
-  meta.textContent = "> всего сообщений: " + items.length;
-
-  box.innerHTML = items
-    .slice()
-    .reverse()
-    .map(m => {
-      const c = colorFor(m);
-      return `
-        <div class="msg" style="--accent:${c.accent}; --bg:${c.bg};">
-          <span class="when">${escapeHtml(m.when || "")}</span>
-          ${renderAuthor(m)}
-          ${escapeHtml(m.text || "")}
-        </div>
-      `;
-    })
-    .join("");
 }
+
+// Печатаем все сообщения по очереди (снизу вверх, как «прямой эфир»)
+async function playLive(items, container) {
+  // Идём от старых к новым — как будто только что писали в прямом эфире
+  for (let i = 0; i < items.length; i++) {
+    const m = items[i];
+    const c = colorFor(m);
+
+    // Создаём карточку
+    const div = document.createElement("div");
+    div.className = "msg";
+    div.style.setProperty("--accent", c.accent);
+    div.style.setProperty("--bg", c.bg);
+
+    // Дата
+    const when = document.createElement("span");
+    when.className = "when";
+    when.textContent = m.when || "";
+    div.appendChild(when);
+
+    // Автор
+    const authorWrap = document.createElement("span");
+    authorWrap.innerHTML = authorHTML(m);
+    div.appendChild(authorWrap);
+
+    // Текст + курсор
+    const textWrap = document.createElement("span");
+    textWrap.className = "text";
+    const cursor = document.createElement("span");
+    cursor.className = "cursor";
+
+    const line = document.createElement("div");
+    line.appendChild(textWrap);
+    line.appendChild(cursor);
+    div.appendChild(line);
+
+    // Вставляем карточку СВЕРХУ списка (новые сверху)
+    container.insertBefore(div, container.firstChild);
+
+    // Плавно показать
+    requestAnimationFrame(() => div.classList.add("show"));
+
+    // Печатаем текст
+    await typeText(textWrap, m.text || "", c.accent);
+
+    // Убираем курсор
+    cursor.remove();
+
+    // Пауза перед следующим
+    await sleep(rand(MSG_DELAY_MIN, MSG_DELAY_MAX));
+  }
+}
+
+let isRendering = false;
+let lastCount = -1;
 
 async function load() {
   const status = document.getElementById("status");
@@ -283,7 +353,50 @@ async function load() {
     const res = await fetch(FILE + "?t=" + Date.now(), { cache: "no-store" });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const text = await res.text();
-    render(text.split("\n"));
+
+    const items = [];
+    for (const line of text.split("\n")) {
+      const t = line.trim();
+      if (!t) continue;
+      try { items.push(JSON.parse(t)); }
+      catch { items.push({ text: t, who: "?", when: "" }); }
+    }
+
+    const meta = document.getElementById("meta");
+    meta.textContent = "> всего сообщений: " + items.length;
+
+    const box = document.getElementById("messages");
+
+    if (items.length === 0) {
+      box.innerHTML = '<div class="empty">> пока сообщений нет_</div>';
+      lastCount = 0;
+      return;
+    }
+
+    // Если количество не изменилось — ничего не делаем (не перезапускаем печать)
+    if (items.length === lastCount) {
+      status.textContent = "// обновлено: " + new Date().toLocaleTimeString();
+      return;
+    }
+
+    // Если уже что-то печатается — не мешаем
+    if (isRendering) return;
+
+    // При первом запуске печатаем ВСЕ сообщения по очереди
+    if (lastCount < 0) {
+      isRendering = true;
+      box.innerHTML = "";
+      await playLive(items, box);
+      isRendering = false;
+    } else {
+      // Появились новые — печатаем только их (с конца, т.е. новые сверху)
+      const fresh = items.slice(lastCount);
+      isRendering = true;
+      await playLive(fresh, box);
+      isRendering = false;
+    }
+
+    lastCount = items.length;
     status.textContent = "// обновлено: " + new Date().toLocaleTimeString();
   } catch (e) {
     status.textContent = "// ошибка загрузки: " + e.message;
