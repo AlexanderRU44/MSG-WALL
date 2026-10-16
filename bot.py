@@ -117,10 +117,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     user = update.effective_user
+    username = user.username or ""
     record = {
         "when": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
         "id": user.id,
-        "who": f"@{user.username}" if user.username else user.first_name,
+        "username": username,                                     # без @
+        "who": f"@{username}" if username else user.first_name,   # для отображения
         "text": text,
     }
     line = json.dumps(record, ensure_ascii=False)
