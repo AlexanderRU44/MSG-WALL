@@ -29,7 +29,6 @@ GITHUB_TOKEN    = os.environ["GITHUB_TOKEN"]
 REPO_NAME       = os.environ["REPO_NAME"]
 SECRET_SALT     = os.environ.get("SECRET_SALT", "change-me-please")
 ENCRYPTION_KEY  = os.environ["ENCRYPTION_KEY"]
-ADMIN_CODE      = os.environ.get("ADMIN_CODE", "admin123") # <-- Код админа
 
 # --- Fernet ---
 fernet = Fernet(ENCRYPTION_KEY.encode())
@@ -150,18 +149,6 @@ def append_to_file(path: str, encrypted_line: str):
             if attempt == 2:
                 raise
             time.sleep(0.5 + attempt)
-
-def rewrite_messages_file():
-    """Перезаписывает весь файл сообщений (для удаления)."""
-    content = "\n".join([pack_record(m) for m in _cache["messages"]]) + "\n"
-    _, sha = get_contents(MESSAGES_PATH)
-    write_contents(MESSAGES_PATH, content, sha, "admin delete message")
-
-def rewrite_bans_file():
-    """Перезаписывает весь файл банов."""
-    content = "\n".join([json.dumps({"hash": h, "banned": b}) for h, b in _cache["bans"].items()]) + "\n"
-    _, sha = get_contents(BANS_PATH)
-    write_contents(BANS_PATH, content, sha, "admin ban update")
 
 
 # ============ Cache loading ============
@@ -331,12 +318,10 @@ class Handler(BaseHTTPRequestHandler):
         data = self._read_json()
         code = str(data.get("code", "")).strip()
 
-        # 1. Проверяем, не админ ли это
-        is_admin = (code == ADMIN_CODE)
-        if not is_admin and code != daily_code():
+        if code != daily_code():
             return self._send_json({"ok": False, "reason": "code"})
 
-        if _cache["bans"].get(h) is True and not is_admin:
+        if _cache["bans"].get(h) is True:
             return self._send_json({"ok": False, "reason": "banned"})
 
         if self.path == "/verify":
@@ -344,14 +329,13 @@ class Handler(BaseHTTPRequestHandler):
             if not _cache["loaded"]:
                 refresh_cache()
                 
-            if _cache["bans"].get(h) is True and not is_admin:
+            if _cache["bans"].get(h) is True:
                 return self._send_json({"ok": False, "reason": "banned"})
 
             return self._send_json({
                 "ok": True,
                 "hash": h,
                 "nick": _cache["nicks"].get(h),
-                "is_admin": is_admin # <-- Сообщаем сайту, что вошел админ
             })
 
         if self.path == "/post":
@@ -367,157 +351,3 @@ class Handler(BaseHTTPRequestHandler):
             
             record = {
                 "when": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
-                "ip_hash": h,
-                "nick": current_nick,
-                "text": text,
-            }
-            
-            if reply_to:
-                record["reply_to"] = reply_to
-
-            try:
-                append_to_file(MESSAGES_PATH, pack_record(record))
-            except Exception as e:
-                print(f"[post] error: {e}")
-                return self._send_json({"ok": False, "reason": "github"})
-            _cache["messages"].append(record)
-            return self._send_json({"ok": True, "hash": h})
-
-        if self.path == "/nick":
-            nick_raw = data.get("nick", "")
-            ok_valid, result = valid_nick(nick_raw)
-            if not ok_valid:
-                return self._send_json({"ok": False, "reason": result})
-            nick = result
-
-            now = time.time()
-            last = nick_last_change.get(h, 0)
-            if now - last < NICK_COOLDOWN and not is_admin:
-                return self._send_json({
-                    "ok": False,
-                    "reason": "cooldown",
-                    "wait": int(NICK_COOLDOWN - (now - last))
-                })
-
-            for other_hash, existing_nick in _cache["nicks"].items():
-                if existing_nick == nick and other_hash != h:
-                    return self._send_json({"ok": False, "reason": "taken"})
-
-            old_nick = _cache["nicks"].get(h)
-            old_label = f"@{old_nick}" if old_nick else f"@{h}"
-
-            try:
-                set_nick(h, nick)
-                nick_last_change[h] = now
-                _cache["nicks"][h] = nick
-            except Exception as e:
-                print(f"[nick] error: {e}")
-                return self._send_json({"ok": False, "reason": "github"})
-
-            system_msg = f"user {old_label} changed nick to @{nick}"
-            sys_record = {
-                "when": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
-                "system": True,
-                "text": system_msg,
-            }
-            try:
-                append_to_file(MESSAGES_PATH, pack_record(sys_record))
-                _cache["messages"].append(sys_record)
-            except Exception as e:
-                print(f"[nick] system message error: {e}")
-
-            return self._send_json({"ok": True, "nick": nick, "hash": h})
-
-        # === АДМИНСКИЕ КОМАНДЫ ===
-        if self.path == "/admin/delete":
-            if not is_admin:
-                return self._send_json({"ok": False, "reason": "denied"})
-            
-            index = data.get("index")
-            if index is not None and 0 <= index < len(_cache["messages"]):
-                del _cache["messages"][index]
-                try:
-                    rewrite_messages_file()
-                except Exception as e:
-                    print(f"[admin] delete error: {e}")
-                    return self._send_json({"ok": False, "reason": "github"})
-                return self._send_json({"ok": True})
-            return self._send_json({"ok": False, "reason": "notfound"})
-
-        if self.path == "/admin/ban":
-            if not is_admin:
-                return self._send_json({"ok": False, "reason": "denied"})
-            
-            target_hash = data.get("hash")
-            if target_hash:
-                _cache["bans"][target_hash] = True
-                try:
-                    rewrite_bans_file()
-                except Exception as e:
-                    print(f"[admin] ban error: {e}")
-                    return self._send_json({"ok": False, "reason": "github"})
-                return self._send_json({"ok": True})
-            return self._send_json({"ok": False, "reason": "notfound"})
-
-        return self._send_json({"ok": False, "reason": "notfound"}, 404)
-
-    def log_message(self, *args):
-        pass
-
-
-def run_http_server():
-    port = int(os.environ.get("PORT", 10000))
-    server = HTTPServer(("0.0.0.0", port), Handler)
-    print(f"[http] listening on {port}")
-    server.serve_forever()
-
-
-# ============ Telegram bot ============
-
-async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "I am Msg Wall.\n\n"
-        "Use /code to get today's access code,\n"
-        "then enter it on the wall website to read and write messages."
-    )
-
-async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "How it works:\n"
-        "1. Get today's code with /code.\n"
-        "2. Open the wall website.\n"
-        "3. Enter the code.\n"
-        "4. Read and write messages right there.\n\n"
-        "Commands:\n"
-        "/start — begin\n"
-        "/code — today's access code\n"
-        "/help — this help"
-    )
-
-async def cmd_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    code = daily_code()
-    day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    await update.message.reply_text(
-        f"Today's code ({day} UTC):\n\n    {code}\n\n"
-        "Enter it on the wall website."
-    )
-
-
-def main():
-    print("[startup] loading cache from GitHub…")
-    refresh_cache()
-
-    threading.Thread(target=run_http_server, daemon=True).start()
-
-    app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
-    app.add_handler(CommandHandler("start", cmd_start))
-    app.add_handler(CommandHandler("help", cmd_help))
-    app.add_handler(CommandHandler("code", cmd_code))
-
-    print(f"[bot] starting. code for today: {daily_code()}")
-    print(f"[bot] data branch: {DATA_BRANCH}")
-    app.run_polling()
-
-
-if __name__ == "__main__":
-    main()
