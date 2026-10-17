@@ -175,18 +175,23 @@ if (urlParams.has('admin')) {
     });
   }
 } else {
-  if (hiddenInput) {
-    hiddenInput.addEventListener("input", (e) => {
-      codeValue = e.target.value;
-      if (codeValue.length > 30) codeValue = codeValue.slice(0, 30);
+  // Обычный режим
+  // Перехватываем вставку из буфера обмена на уровне документа
+  document.addEventListener("paste", (e) => {
+    if (!gateEl.classList.contains("visible")) return; // Работает только на экране входа
+    
+    const pasted = (e.clipboardData || window.clipboardData).getData("text");
+    if (pasted) {
+      codeValue = pasted.trim();
       updateDigitsUI();
+      
       if (codeValue.length > 4 || /[a-zA-Z]/.test(codeValue)) {
-        if (codeValue.length >= 6) setTimeout(submitCode, 500);
+        submitCode();
       } else if (codeValue.length === 4) {
         setTimeout(submitCode, 200);
       }
-    });
-  }
+    }
+  });
 }
 
 // ============ Fetch ============
