@@ -59,12 +59,10 @@
   }
 
   /* ============ Layout ============ */
-  
-  /* Используем 100dvh — динамическая высота, которая сжимается при появлении клавиатуры */
   .app-container {
     display: flex;
     flex-direction: column;
-    height: 100dvh; /* <--- ГЛАВНОЕ ИЗМЕНЕНИЕ */
+    height: 100dvh;
     max-width: 820px;
     margin: 0 auto;
     position: relative;
@@ -125,7 +123,7 @@
     padding: 16px 24px;
     display: flex;
     flex-direction: column;
-    -webkit-overflow-scrolling: touch; /* Плавный скролл на iOS */
+    -webkit-overflow-scrolling: touch;
   }
 
   .tline {
@@ -247,14 +245,12 @@
   }
   .msg.system .text { color: #888888; }
 
-  /* Панель ввода */
   #input-area {
     display: none;
     flex-shrink: 0;
     padding: 12px 16px 16px;
     background: #0a0a0a;
     border-top: 1px dashed #333333;
-    /* Поднимаем над клавиатурой за счет 100dvh у контейнера */
     z-index: 10;
   }
   #input-area.visible { display: block; }
@@ -541,12 +537,21 @@ function authorLabelFor(msg) {
   return { text: "@" + msg.ip_hash };
 }
 
-function buildMessagesHTML(items) {
-  const isScrolledToBottom = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 50;
+function scrollToBottom() {
+  // Прокручиваем вниз, но с небольшой задержкой, чтобы DOM успел обновиться
+  setTimeout(() => {
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  }, 50);
+}
 
+function renderMessages(items) {
+  if (items.length === 0) {
+    messagesEl.innerHTML = '<div class="tline"><span class="dim">&gt; no messages yet_</span></div>';
+    return;
+  }
+
+  // Убрали .reverse() — новые сообщения идут в конце списка (снизу)
   messagesEl.innerHTML = items
-    .slice()
-    .reverse()
     .map(m => {
       if (m.system) {
         return `
@@ -570,21 +575,8 @@ function buildMessagesHTML(items) {
     })
     .join("");
 
-  // Если пользователь был внизу — скроллим вниз (новые сообщения сверху, но если они хотят видеть новые, пусть скроллят)
-  // На самом деле в чатах новые снизу. Но у нас новые сверху (reverse). 
-  // Если хотим новые сверху и чтобы скролл был вверху при новом сообщении:
-  if (items.length !== renderedCount && renderedCount !== -1) {
-    messagesEl.scrollTop = 0; 
-  }
-}
-
-function renderMessages(items) {
-  if (items.length === 0) {
-    messagesEl.innerHTML = '<div class="tline"><span class="dim">&gt; no messages yet_</span></div>';
-  } else {
-    buildMessagesHTML(items);
-  }
   renderedCount = items.length;
+  scrollToBottom();
 }
 
 // ============ Bootstrap ============
@@ -787,7 +779,6 @@ async function sendMessage() {
     nicksMap = await fetchNicks();
     renderMessages(allItems);
     metaEl.innerHTML = PROMPT_HTML + "total messages: " + allItems.length;
-    messagesEl.scrollTop = 0; // Прокрутить наверх к новому сообщению
   } catch (e) { /* ignore */ }
 
   setTimeout(() => { setStatus(""); }, 2000);
