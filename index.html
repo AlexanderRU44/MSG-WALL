@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Msg Wall</title>
+<!-- Подключаем стили из папки assets -->
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+  
+  <div class="app-container" id="app-container">
+    <header>
+      <h1>Msg Wall</h1>
+      <div class="slogan" id="slogan"></div>
+      <div class="meta" id="meta"></div>
+    </header>
+
+    <div id="loading"></div>
+
+    <div id="gate">
+      <div class="hint">enter today's code</div>
+      <div class="digits" id="digits">
+        <div class="digit active"></div>
+        <div class="digit"></div>
+        <div class="digit"></div>
+        <div class="digit"></div>
+      </div>
+      <div class="keypad" id="keypad">
+        <button data-key="1">1</button>
+        <button data-key="2">2</button>
+        <button data-key="3">3</button>
+        <button data-key="4">4</button>
+        <button data-key="5">5</button>
+        <button data-key="6">6</button>
+        <button data-key="7">7</button>
+        <button data-key="8">8</button>
+        <button data-key="9">9</button>
+        <button class="action" data-key="clear">CLR</button>
+        <button data-key="0">0</button>
+        <button class="action" data-key="back">←</button>
+      </div>
+    </div>
+
+    <div id="messages"></div>
+
+    <div id="input-area">
+      <div class="input-row">
+        <span class="input-prompt">&gt;</span>
+        <input id="msg-input" type="text" maxlength="500" placeholder="type a message, @nick or /command…" autocomplete="off" />
+        <button id="send-btn">SEND</button>
+      </div>
+      <div id="dropdown-menu"></div>
+    </div>
+  </div>
+
+  <div class="vignette"></div>
+  <div id="status"></div>
+
+  <!-- Подключаем скрипт из папки js -->
+  <script src="js/script.js"></script>
+</body>
+</html>
