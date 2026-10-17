@@ -128,37 +128,41 @@ const dropdownMenu = document.getElementById("dropdown-menu");
 const hiddenInput = document.getElementById("hidden-input");
 
 // Фокусируемся на скрытом инпуте при клике на область ввода кода
-gateEl.addEventListener("click", (e) => {
-  if (e.target.tagName !== 'BUTTON') {
-    hiddenInput.focus();
-  }
-});
+if (gateEl) {
+  gateEl.addEventListener("click", (e) => {
+    if (e.target.tagName !== 'BUTTON' && hiddenInput) {
+      hiddenInput.focus();
+    }
+  });
+}
 
 // Перехватываем вставку из буфера обмена
-hiddenInput.addEventListener("paste", (e) => {
-  e.preventDefault();
-  const pasted = (e.clipboardData || window.clipboardData).getData("text");
-  if (pasted) {
-    codeValue = pasted.trim();
-    updateDigitsUI();
-    if (codeValue.length > 4 || /[a-zA-Z]/.test(codeValue)) {
-      submitCode();
+if (hiddenInput) {
+  hiddenInput.addEventListener("paste", (e) => {
+    e.preventDefault();
+    const pasted = (e.clipboardData || window.clipboardData).getData("text");
+    if (pasted) {
+      codeValue = pasted.trim();
+      updateDigitsUI();
+      if (codeValue.length > 4 || /[a-zA-Z]/.test(codeValue)) {
+        submitCode();
+      }
     }
-  }
-});
+  });
 
-// Перехватываем ввод с физической клавиатуры
-hiddenInput.addEventListener("input", (e) => {
-  codeValue = e.target.value;
-  if (codeValue.length > 30) codeValue = codeValue.slice(0, 30);
-  updateDigitsUI();
-  
-  if (codeValue.length > 4 || /[a-zA-Z]/.test(codeValue)) {
-    if (codeValue.length >= 6) setTimeout(submitCode, 500);
-  } else if (codeValue.length === 4) {
-    setTimeout(submitCode, 200);
-  }
-});
+  // Перехватываем ввод с физической клавиатуры
+  hiddenInput.addEventListener("input", (e) => {
+    codeValue = e.target.value;
+    if (codeValue.length > 30) codeValue = codeValue.slice(0, 30);
+    updateDigitsUI();
+    
+    if (codeValue.length > 4 || /[a-zA-Z]/.test(codeValue)) {
+      if (codeValue.length >= 6) setTimeout(submitCode, 500);
+    } else if (codeValue.length === 4) {
+      setTimeout(submitCode, 200);
+    }
+  });
+}
 
 // ============ Fetch ============
 async function fetchMessages() {
@@ -365,7 +369,7 @@ async function printLocalStatus(textLines) {
 }
 
 // ==== АДМИНСКИЕ ДЕЙСТВИЯ ====
-async function deleteMessage(index) {
+window.deleteMessage = async function(index) {
   if (!isAdminMode) return;
   if (!confirm("Удалить это сообщение?")) return;
   
@@ -379,9 +383,9 @@ async function deleteMessage(index) {
   } else {
     alert("Ошибка удаления: " + res.reason);
   }
-}
+};
 
-async function banUser(hash) {
+window.banUser = async function(hash) {
   if (!isAdminMode) return;
   if (!confirm(`Забанить пользователя @${hash}?`)) return;
   
@@ -391,7 +395,7 @@ async function banUser(hash) {
   } else {
     alert("Ошибка бана: " + res.reason);
   }
-}
+};
 
 // ============ Code gate ============
 function updateDigitsUI() {
@@ -431,7 +435,7 @@ async function submitCode() {
     }
     
     codeValue = "";
-    hiddenInput.value = "";
+    if (hiddenInput) hiddenInput.value = "";
     updateDigitsUI();
     return;
   }
@@ -443,7 +447,7 @@ async function submitCode() {
   myNick = res.nick;
 
   codeValue = "";
-  hiddenInput.value = "";
+  if (hiddenInput) hiddenInput.value = "";
   updateDigitsUI();
   gateEl.classList.remove("visible");
 
@@ -460,34 +464,36 @@ async function submitCode() {
 
   renderMessages(allItems);
   inputArea.classList.add("visible");
-  msgInput.focus();
+  if (msgInput) msgInput.focus();
   setTimeout(adjustHeight, 100);
 }
 
-keypadEl.addEventListener("click", e => {
-  const btn = e.target.closest("button[data-key]");
-  if (!btn) return;
-  const key = btn.dataset.key;
+if (keypadEl) {
+  keypadEl.addEventListener("click", e => {
+    const btn = e.target.closest("button[data-key]");
+    if (!btn) return;
+    const key = btn.dataset.key;
 
-  if (key === "clear") { 
-    codeValue = ""; 
-    hiddenInput.value = "";
-    updateDigitsUI(); 
-    return; 
-  }
-  if (key === "back")  { 
-    codeValue = codeValue.slice(0, -1); 
-    hiddenInput.value = codeValue;
-    updateDigitsUI(); 
-    return; 
-  }
+    if (key === "clear") { 
+      codeValue = ""; 
+      if (hiddenInput) hiddenInput.value = "";
+      updateDigitsUI(); 
+      return; 
+    }
+    if (key === "back")  { 
+      codeValue = codeValue.slice(0, -1); 
+      if (hiddenInput) hiddenInput.value = codeValue;
+      updateDigitsUI(); 
+      return; 
+    }
 
-  if (codeValue.length >= 4 && !/[a-zA-Z]/.test(codeValue)) return;
-  codeValue += key;
-  hiddenInput.value = codeValue;
-  updateDigitsUI();
-  if (codeValue.length === 4) setTimeout(submitCode, 200);
-});
+    if (codeValue.length >= 4 && !/[a-zA-Z]/.test(codeValue)) return;
+    codeValue += key;
+    if (hiddenInput) hiddenInput.value = codeValue;
+    updateDigitsUI();
+    if (codeValue.length === 4) setTimeout(submitCode, 200);
+  });
+}
 
 // ============ Send ============
 async function sendMessage() {
@@ -621,7 +627,7 @@ async function sendMessage() {
   } catch (e) { /* ignore */ }
 }
 
-sendBtn.addEventListener("click", sendMessage);
+if (sendBtn) sendBtn.addEventListener("click", sendMessage);
 
 // ============ Periodic refresh ============
 async function refresh() {
@@ -647,6 +653,28 @@ async function refresh() {
   } catch (e) {
     document.getElementById("status").textContent = "// load error: " + e.message;
   }
+}
+
+// ============ Bootstrap (Инициализация) ============
+let bootstrapped = false;
+async function bootstrap() {
+  if (bootstrapped) return;
+  bootstrapped = true;
+
+  await typeInto(sloganEl, SLOGAN_TEXT, 30, 70);
+  await sleep(300);
+
+  try {
+    allItems = await fetchMessages();
+    nicksMap = await fetchNicks();
+  } catch (e) {
+    allItems = []; nicksMap = {};
+  }
+
+  await typeInto(metaEl, "total messages: " + allItems.length, 25, 50);
+
+  gateEl.classList.add("visible");
+  updateDigitsUI();
 }
 
 bootstrap();
