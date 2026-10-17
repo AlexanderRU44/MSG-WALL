@@ -49,6 +49,11 @@ _cache = {
     "loaded": False,
 }
 
+# --- Online tracking ---
+# ip_hash -> last_seen_timestamp
+active_users = {}
+ONLINE_TIMEOUT = 60  # секунд (если запрос был менее минуты назад - считаем онлайн)
+
 # --- Nick change rate limit ---
 nick_last_change = {}
 NICK_COOLDOWN = 600
@@ -221,6 +226,22 @@ def set_nick(h: str, nick: str):
     write_contents(NICKS_PATH, new_content, sha, "nick update")
 
 
+# ============ Online users logic ============
+
+def update_online(h: str):
+    active_users[h] = time.time()
+
+
+def get_online_count() -> int:
+    now = time.time()
+    # Удаляем тех, кто не заходил больше минуты
+    to_remove = [h for h, last_seen in active_users.items() if now - last_seen > ONLINE_TIMEOUT]
+    for h in to_remove:
+        del active_users[h]
+    
+    return len(active_users)
+
+
 # ============ HTTP server ============
 
 def get_client_ip(handler) -> str:
@@ -251,10 +272,18 @@ class Handler(BaseHTTPRequestHandler):
             return {}
 
     def do_GET(self):
+        ip = get_client_ip(self)
+        h = ip_hash(ip)
+
         if self.path.startswith("/messages"):
+            update_online(h)  # Отмечаем активность
             if not _cache["loaded"]:
                 refresh_cache()
-            return self._send_json({"ok": True, "messages": _cache["messages"]})
+            return self._send_json({
+                "ok": True, 
+                "messages": _cache["messages"],
+                "online": get_online_count() # Передаем количество онлайн
+            })
 
         if self.path.startswith("/nicks"):
             if not _cache["loaded"]:
@@ -287,6 +316,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_json({"ok": False, "reason": "code"})
 
         if self.path == "/verify":
+            update_online(h)
             if not _cache["loaded"]:
                 refresh_cache()
             return self._send_json({
@@ -304,7 +334,6 @@ class Handler(BaseHTTPRequestHandler):
             if len(text) > 500:
                 text = text[:500]
             
-            # Фиксируем текущий ник в самом сообщении
             current_nick = _cache["nicks"].get(h, "")
             
             record = {
@@ -356,7 +385,6 @@ class Handler(BaseHTTPRequestHandler):
                 print(f"[nick] error: {e}")
                 return self._send_json({"ok": False, "reason": "github"})
 
-            # === Создаём системное сообщение ===
             system_msg = f"user {old_label} changed nick to @{nick}"
             sys_record = {
                 "when": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
