@@ -76,7 +76,6 @@ def pack_record(record: dict) -> str:
 
 
 def unpack_record(line: str) -> dict | None:
-    """Пытаемся расшифровать. Если не вышло — fallback: старая открытая строка."""
     decrypted = decrypt_str(line)
     if decrypted is not None:
         try:
@@ -335,6 +334,9 @@ class Handler(BaseHTTPRequestHandler):
                 if existing_nick == nick and other_hash != h:
                     return self._send_json({"ok": False, "reason": "taken"})
 
+            old_nick = _cache["nicks"].get(h)
+            old_label = f"@{old_nick}" if old_nick else f"@{h}"
+
             try:
                 set_nick(h, nick)
                 nick_last_change[h] = now
@@ -342,6 +344,19 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as e:
                 print(f"[nick] error: {e}")
                 return self._send_json({"ok": False, "reason": "github"})
+
+            # === Создаём системное сообщение для всех ===
+            system_msg = f"user {old_label} changed nick to @{nick}"
+            sys_record = {
+                "when": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
+                "system": True,
+                "text": system_msg,
+            }
+            try:
+                append_to_file(MESSAGES_PATH, pack_record(sys_record))
+                _cache["messages"].append(sys_record)
+            except Exception as e:
+                print(f"[nick] system message error: {e}")
 
             return self._send_json({"ok": True, "nick": nick, "hash": h})
 
