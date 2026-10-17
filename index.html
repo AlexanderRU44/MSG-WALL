@@ -62,12 +62,13 @@
   .app-container {
     display: flex;
     flex-direction: column;
-    height: 100dvh;
+    height: 100dvh; /* fallback */
     max-width: 820px;
     margin: 0 auto;
     position: relative;
     z-index: 2;
     animation: flicker 7s infinite;
+    /* JS будет менять height через style, перекрывая 100dvh */
   }
 
   @keyframes flicker {
@@ -346,7 +347,7 @@
 </head>
 <body>
   
-  <div class="app-container">
+  <div class="app-container" id="app-container">
     <header>
       <h1>Msg Wall</h1>
       <div class="slogan" id="slogan"></div>
@@ -395,6 +396,39 @@
   <div id="status"></div>
 
 <script>
+// ==== Обработка высоты экрана при появлении клавиатуры ====
+function adjustHeight() {
+  const app = document.getElementById('app-container');
+  if (!app) return;
+  
+  if (window.visualViewport) {
+    // Используем высоту видимой области
+    app.style.height = window.visualViewport.height + 'px';
+    
+    // Принудительно прокручиваем вниз, если клавиатура открылась
+    if (document.activeElement === document.getElementById('msg-input')) {
+      setTimeout(() => {
+        const messagesEl = document.getElementById('messages');
+        if (messagesEl) messagesEl.scrollTop = messagesEl.scrollHeight;
+      }, 100);
+    }
+  } else {
+    // Fallback для старых браузеров
+    app.style.height = window.innerHeight + 'px';
+  }
+}
+
+// Вызываем при загрузке и при любом изменении viewport
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', adjustHeight);
+  window.visualViewport.addEventListener('scroll', adjustHeight);
+}
+window.addEventListener('resize', adjustHeight);
+window.addEventListener('orientationchange', adjustHeight);
+document.addEventListener('DOMContentLoaded', adjustHeight);
+adjustHeight(); // на всякий случай
+
+// ============ Логика ============
 const API = "https://msg-wall.onrender.com";
 const REFRESH_MS = 5000;
 const SLOGAN_TEXT = "write it — and it stays";
@@ -538,7 +572,6 @@ function authorLabelFor(msg) {
 }
 
 function scrollToBottom() {
-  // Прокручиваем вниз, но с небольшой задержкой, чтобы DOM успел обновиться
   setTimeout(() => {
     messagesEl.scrollTop = messagesEl.scrollHeight;
   }, 50);
@@ -550,7 +583,6 @@ function renderMessages(items) {
     return;
   }
 
-  // Убрали .reverse() — новые сообщения идут в конце списка (снизу)
   messagesEl.innerHTML = items
     .map(m => {
       if (m.system) {
@@ -649,7 +681,10 @@ async function submitCode() {
 
   renderMessages(allItems);
   inputArea.classList.add("visible");
+  
+  // Принудительно поднимаем вьюпорт при фокусе
   msgInput.focus();
+  setTimeout(adjustHeight, 100);
 }
 
 keypadEl.addEventListener("click", e => {
