@@ -255,8 +255,15 @@
     font-style: italic;
   }
   .msg.system .text { color: #888888; }
+  
+  /* Ники внутри системных сообщений */
+  .msg.system .nick-mention {
+    font-style: normal;
+    font-weight: bold;
+    text-shadow: 0 0 6px currentColor;
+  }
 
-  /* Служебные сообщения от команд (только для себя) */
+  /* Служебные сообщения */
   .msg.local-status {
     border-left-color: #888888;
     color: #888888;
@@ -487,6 +494,14 @@ function colorForHash(h) {
   return PALETTE[hashIndex(String(h).toLowerCase(), PALETTE.length)];
 }
 
+// Ищем хэш по нику (для раскраски системных сообщений)
+function findHashByNick(nick) {
+  for (const [hash, n] of Object.entries(nicksMap)) {
+    if (n === nick) return hash;
+  }
+  return nick; // Если не нашли, используем сам ник для генерации цвета
+}
+
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
@@ -594,7 +609,7 @@ function scrollToBottom() {
   }, 50);
 }
 
-// ============ Базовый рендер сообщения ============
+// ============ Рендер (с раскраской ников в системных сообщениях) ============
 function authorLabelFor(msg) {
   if (msg.system) return null;
   if (msg.nick) return { text: "@" + msg.nick };
@@ -603,12 +618,22 @@ function authorLabelFor(msg) {
   return { text: "@" + msg.ip_hash };
 }
 
+function renderSystemText(text) {
+  // Ищем @ники и раскрашиваем их
+  if (!text) return "";
+  return text.replace(/@([a-zA-Z0-9_\-а-яА-Я]+)/g, (match, nick) => {
+    const hash = findHashByNick(nick);
+    const color = colorForHash(hash).accent;
+    return `<span class="nick-mention" style="color: ${color};">@${escapeHtml(nick)}</span>`;
+  });
+}
+
 function buildMessageHTML(m) {
   if (m.system) {
     return `
       <div class="msg system">
         <span class="when">${escapeHtml(formatLocalFromUTC(m.when || ""))}</span>
-        <span class="text">${escapeHtml(m.text || "")}</span>
+        <span class="text">${renderSystemText(m.text || "")}</span>
       </div>
     `;
   }
@@ -640,15 +665,36 @@ function buildMessageHTML(m) {
   `;
 }
 
-// ============ Печать сообщения (живой эфир) ============
+// ============ Анимация печати ============
 async function animatePrintMessage(m) {
   isPrinting = true;
   
   const div = document.createElement("div");
-  // Создаем пустой каркас
+  
   if (m.system) {
     div.className = "msg system";
+    // Используем innerHTML для системных, так как там уже есть раскраска
     div.innerHTML = `<span class="when">${escapeHtml(formatLocalFromUTC(m.when || ""))}</span> <span class="text"></span>`;
+    
+    messagesEl.appendChild(div);
+    scrollToBottom();
+    
+    const textEl = div.querySelector(".text");
+    const fullText = m.text || "";
+    
+    // Печатаем посимвольно, но при этом хотим сохранить раскраску
+    // Для простоты печатаем текст, а потом заменяем на раскрашенный в конце
+    // Или можно сделать сложнее, но для начала так:
+    
+    for (let i = 0; i < fullText.length; i++) {
+      textEl.textContent += fullText[i];
+      scrollToBottom();
+      await sleep(rand(15, 40));
+    }
+    
+    // После печати применяем раскраску
+    textEl.innerHTML = renderSystemText(fullText);
+    
   } else {
     const c = colorForHash(m.ip_hash);
     const a = authorLabelFor(m);
@@ -670,18 +716,18 @@ async function animatePrintMessage(m) {
       ${replyHtml}
       <span class="text"></span>
     `;
-  }
 
-  messagesEl.appendChild(div);
-  scrollToBottom();
-
-  const textEl = div.querySelector(".text");
-  const text = m.text || "";
-  
-  for (let i = 0; i < text.length; i++) {
-    textEl.textContent += text[i];
+    messagesEl.appendChild(div);
     scrollToBottom();
-    await sleep(rand(15, 40));
+
+    const textEl = div.querySelector(".text");
+    const text = m.text || "";
+    
+    for (let i = 0; i < text.length; i++) {
+      textEl.textContent += text[i];
+      scrollToBottom();
+      await sleep(rand(15, 40));
+    }
   }
 
   isPrinting = false;
@@ -693,22 +739,15 @@ async function renderMessages(items) {
     messagesEl.innerHTML = '<div class="tline"><span class="dim">&gt; no messages yet_</span></div>';
     return;
   }
-
-  // Если сейчас идет печать, не перерисовываем (ждем окончания)
   if (isPrinting) return;
-
-  // Ищем новые сообщения (которых нет в DOM)
-  // Для простоты: если количество изменилось, рендерим всё заново (но это ломает анимацию).
-  // Поэтому мы просто проверяем, если это первичная загрузка или был refresh.
   
   messagesEl.innerHTML = items.map(m => buildMessageHTML(m)).join("");
   renderedCount = items.length;
   scrollToBottom();
 }
 
-// ============ Команды и их вывод ============
+// ============ Команды ============
 async function printLocalStatus(textLines) {
-  // Выводит текст в ленту сообщений, видимый только нам, с эффектом печати и стирания
   const div = document.createElement("div");
   div.className = "msg local-status";
   div.innerHTML = `<span class="text" style="color:#888888; white-space: pre-wrap;"></span>`;
@@ -719,17 +758,14 @@ async function printLocalStatus(textLines) {
   const textEl = div.querySelector(".text");
   const fullText = textLines.join("\n");
 
-  // Печатаем
   for (let i = 0; i < fullText.length; i++) {
     textEl.textContent += fullText[i];
     scrollToBottom();
     await sleep(rand(15, 30));
   }
 
-  // Ждем
   await sleep(4000);
 
-  // Стираем
   for (let i = fullText.length; i > 0; i--) {
     textEl.textContent = fullText.slice(0, i - 1);
     scrollToBottom();
@@ -896,7 +932,6 @@ async function submitCode() {
     nicksMap = await fetchNicks();
   } catch (e) { /* ignore */ }
 
-  // Первичный рендер без анимации
   messagesEl.innerHTML = allItems.map(m => buildMessageHTML(m)).join("");
   renderedCount = allItems.length;
   scrollToBottom();
@@ -1036,18 +1071,14 @@ async function sendMessage() {
     return;
   }
 
-  // После успешной отправки — перечитываем и рендерим (но по одному)
   try {
     const newItems = await fetchMessages();
-    
-    // Находим новые сообщения, которых еще нет
     const oldCount = allItems.length;
     const newMessages = newItems.slice(oldCount);
     
     allItems = newItems;
     metaEl.innerHTML = PROMPT_HTML + "total messages: " + allItems.length;
     
-    // Анимированно печатаем каждое новое
     for (const m of newMessages) {
       await animatePrintMessage(m);
       await sleep(300);
@@ -1062,7 +1093,7 @@ sendBtn.addEventListener("click", sendMessage);
 // ============ Periodic refresh ============
 async function refresh() {
   if (!unlocked) return;
-  if (isPrinting) return; // Не мешаем печати
+  if (isPrinting) return;
   
   try {
     const items = await fetchMessages();
@@ -1070,13 +1101,12 @@ async function refresh() {
       const newMessages = items.slice(renderedCount);
       allItems = items;
       
-      // Печатаем только новые
       for (const m of newMessages) {
         await animatePrintMessage(m);
         await sleep(300);
       }
       
-      nicksMap = await fetchNicks(); // обновляем ники
+      nicksMap = await fetchNicks();
       metaEl.innerHTML = PROMPT_HTML + "total messages: " + allItems.length;
       renderedCount = items.length;
     }
