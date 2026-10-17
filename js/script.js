@@ -103,6 +103,7 @@ async function typeCentered(el, text, charMin, charMax) {
 
 // ============ State ============
 let codeValue = "";
+let isAdminMode = false;
 let unlocked = false;
 let sessionCode = null;
 let myHash = null;
@@ -124,6 +125,44 @@ const inputArea = document.getElementById("input-area");
 const msgInput  = document.getElementById("msg-input");
 const sendBtn   = document.getElementById("send-btn");
 const dropdownMenu = document.getElementById("dropdown-menu");
+const hiddenInput = document.getElementById("hidden-input");
+
+// Фокусируемся на скрытом инпуте при клике на область ввода кода
+if (gateEl) {
+  gateEl.addEventListener("click", (e) => {
+    if (e.target.tagName !== 'BUTTON' && hiddenInput) {
+      hiddenInput.focus();
+    }
+  });
+}
+
+// Перехватываем вставку из буфера обмена
+if (hiddenInput) {
+  hiddenInput.addEventListener("paste", (e) => {
+    e.preventDefault();
+    const pasted = (e.clipboardData || window.clipboardData).getData("text");
+    if (pasted) {
+      codeValue = pasted.trim();
+      updateDigitsUI();
+      if (codeValue.length > 4 || /[a-zA-Z]/.test(codeValue)) {
+        submitCode();
+      }
+    }
+  });
+
+  // Перехватываем ввод с физической клавиатуры
+  hiddenInput.addEventListener("input", (e) => {
+    codeValue = e.target.value;
+    if (codeValue.length > 30) codeValue = codeValue.slice(0, 30);
+    updateDigitsUI();
+    
+    if (codeValue.length > 4 || /[a-zA-Z]/.test(codeValue)) {
+      if (codeValue.length >= 6) setTimeout(submitCode, 500);
+    } else if (codeValue.length === 4) {
+      setTimeout(submitCode, 200);
+    }
+  });
+}
 
 // ============ Fetch ============
 async function fetchMessages() {
@@ -175,7 +214,17 @@ function renderSystemText(text) {
   });
 }
 
-function buildMessageHTML(m) {
+function buildMessageHTML(m, index) {
+  let adminControls = "";
+  if (isAdminMode && !m.system) {
+    adminControls = `
+      <span class="admin-controls" style="margin-left: auto; display: flex; gap: 8px;">
+        <button onclick="deleteMessage(${index})" style="background:none;border:none;color:#ff6b6b;cursor:pointer;font-size:12px;">[DEL]</button>
+        <button onclick="banUser('${m.ip_hash}')" style="background:none;border:none;color:#ffa94d;cursor:pointer;font-size:12px;">[BAN]</button>
+      </span>
+    `;
+  }
+
   if (m.system) {
     return `
       <div class="msg system">
@@ -208,6 +257,7 @@ function buildMessageHTML(m) {
       <span class="who">${escapeHtml(a.text)}</span>
       ${replyHtml}
       <span class="text">${escapeHtml(m.text || "")}</span>
+      ${adminControls}
     </div>
   `;
 }
@@ -285,7 +335,7 @@ async function renderMessages(items) {
   }
   if (isPrinting) return;
   
-  messagesEl.innerHTML = items.map(m => buildMessageHTML(m)).join("");
+  messagesEl.innerHTML = items.map((m, i) => buildMessageHTML(m, i)).join("");
   renderedCount = items.length;
   scrollToBottom();
 }
@@ -318,9 +368,47 @@ async function printLocalStatus(textLines) {
   div.remove();
 }
 
+// ==== АДМИНСКИЕ ДЕЙСТВИЯ ====
+window.deleteMessage = async function(index) {
+  if (!isAdminMode) return;
+  if (!confirm("Удалить это сообщение?")) return;
+  
+  const res = await apiPost("/admin/delete", { code: sessionCode, index: index });
+  if (res.ok) {
+    try {
+      allItems = await fetchMessages();
+      renderMessages(allItems);
+      metaEl.innerHTML = PROMPT_HTML + "total messages: " + allItems.length;
+    } catch (e) { /* ignore */ }
+  } else {
+    alert("Ошибка удаления: " + res.reason);
+  }
+};
+
+window.banUser = async function(hash) {
+  if (!isAdminMode) return;
+  if (!confirm(`Забанить пользователя @${hash}?`)) return;
+  
+  const res = await apiPost("/admin/ban", { code: sessionCode, hash: hash });
+  if (res.ok) {
+    alert(`Пользователь @${hash} забанен.`);
+  } else {
+    alert("Ошибка бана: " + res.reason);
+  }
+};
+
 // ============ Code gate ============
 function updateDigitsUI() {
   const cells = digitsEl.querySelectorAll(".digit");
+  
+  if (codeValue.length > 4 || /[a-zA-Z]/.test(codeValue)) {
+    cells.forEach(cell => {
+      cell.textContent = "*";
+      cell.classList.remove("active");
+    });
+    return;
+  }
+
   cells.forEach((cell, i) => {
     if (i < codeValue.length) {
       cell.textContent = codeValue[i];
@@ -347,22 +435,25 @@ async function submitCode() {
     }
     
     codeValue = "";
+    if (hiddenInput) hiddenInput.value = "";
     updateDigitsUI();
     return;
   }
 
   unlocked = true;
+  isAdminMode = res.is_admin || false;
   sessionCode = code;
   myHash = res.hash;
   myNick = res.nick;
 
   codeValue = "";
+  if (hiddenInput) hiddenInput.value = "";
   updateDigitsUI();
   gateEl.classList.remove("visible");
 
   loadingEl.textContent = "";
   loadingEl.classList.remove("hidden");
-  await typeCentered(loadingEl, "loading…", 40, 90);
+  await typeCentered(loadingEl, isAdminMode ? "admin mode activated…" : "loading…", 40, 90);
   await sleep(400);
   loadingEl.classList.add("hidden");
 
@@ -385,21 +476,118 @@ if (keypadEl) {
 
     if (key === "clear") { 
       codeValue = ""; 
+      if (hiddenInput) hiddenInput.value = "";
       updateDigitsUI(); 
       return; 
     }
     if (key === "back")  { 
       codeValue = codeValue.slice(0, -1); 
+      if (hiddenInput) hiddenInput.value = codeValue;
       updateDigitsUI(); 
       return; 
     }
 
-    if (codeValue.length >= 4) return;
+    if (codeValue.length >= 4 && !/[a-zA-Z]/.test(codeValue)) return;
     codeValue += key;
+    if (hiddenInput) hiddenInput.value = codeValue;
     updateDigitsUI();
     if (codeValue.length === 4) setTimeout(submitCode, 200);
   });
 }
+
+// ============ Dropdown (Упоминания и Команды) ============
+const COMMANDS = [
+  { cmd: "nick", desc: "change your nick (e.g. /nick Vasya)" },
+  { cmd: "help", desc: "show available commands" },
+  { cmd: "online", desc: "show how many users are online" }
+];
+
+if (msgInput) {
+  msgInput.addEventListener("input", () => {
+    const val = msgInput.value;
+    const cursorPos = msgInput.selectionStart;
+    const textBeforeCursor = val.slice(0, cursorPos);
+    
+    const lastAt = textBeforeCursor.lastIndexOf("@");
+    const lastSlash = textBeforeCursor.lastIndexOf("/");
+
+    if (lastSlash !== -1 && lastSlash > lastAt && (lastSlash === 0 || textBeforeCursor[lastSlash - 1] === " ")) {
+      const query = textBeforeCursor.slice(lastSlash + 1);
+      if (query.includes(" ")) { dropdownMenu.classList.remove("visible"); return; }
+      
+      const filtered = COMMANDS.filter(c => c.cmd.startsWith(query.toLowerCase()));
+      if (filtered.length === 0) { dropdownMenu.classList.remove("visible"); return; }
+
+      dropdownMenu.innerHTML = filtered.map(c => `
+        <div class="dropdown-item" data-type="cmd" data-val="${c.cmd}">
+          <span>/${c.cmd}</span>
+          <span class="cmd-desc">${c.desc}</span>
+        </div>
+      `).join("");
+
+      dropdownMenu.classList.add("visible");
+      return;
+    }
+
+    if (lastAt !== -1 && lastAt > lastSlash) {
+      const query = textBeforeCursor.slice(lastAt + 1);
+      if (query.includes(" ")) { dropdownMenu.classList.remove("visible"); return; }
+
+      const allNicks = [];
+      for (const [hash, nick] of Object.entries(nicksMap)) {
+        allNicks.push({ hash, nick });
+      }
+
+      const filtered = allNicks.filter(item => item.nick.toLowerCase().includes(query.toLowerCase()));
+      if (filtered.length === 0) { dropdownMenu.classList.remove("visible"); return; }
+
+      dropdownMenu.innerHTML = filtered.map(item => {
+        const c = colorForHash(item.hash);
+        return `<div class="dropdown-item" data-type="nick" data-val="${escapeHtml(item.nick)}">
+          <span class="nick-color" style="color: ${c.accent}">@${escapeHtml(item.nick)}</span>
+        </div>`;
+      }).join("");
+
+      dropdownMenu.classList.add("visible");
+      return;
+    }
+
+    dropdownMenu.classList.remove("visible");
+  });
+}
+
+if (dropdownMenu) {
+  dropdownMenu.addEventListener("click", (e) => {
+    const item = e.target.closest(".dropdown-item");
+    if (!item) return;
+    
+    const type = item.dataset.type;
+    const val = item.dataset.val;
+    const valText = msgInput.value;
+    const cursorPos = msgInput.selectionStart;
+    const textBeforeCursor = valText.slice(0, cursorPos);
+    
+    let newValue = "";
+    
+    if (type === "nick") {
+      const lastAt = textBeforeCursor.lastIndexOf("@");
+      newValue = valText.slice(0, lastAt) + "@" + val + " " + valText.slice(cursorPos);
+    } else if (type === "cmd") {
+      const lastSlash = textBeforeCursor.lastIndexOf("/");
+      newValue = valText.slice(0, lastSlash) + "/" + val + " " + valText.slice(cursorPos);
+    }
+    
+    msgInput.value = newValue;
+    dropdownMenu.classList.remove("visible");
+    msgInput.focus();
+  });
+}
+
+document.addEventListener("click", (e) => {
+  if (dropdownMenu && !dropdownMenu.contains(e.target) && e.target !== msgInput) {
+    dropdownMenu.classList.remove("visible");
+  }
+});
 
 // ============ Send ============
 async function sendMessage() {
@@ -561,7 +749,7 @@ async function refresh() {
   }
 }
 
-// ============ Bootstrap ============
+// ============ Bootstrap (Инициализация) ============
 let bootstrapped = false;
 async function bootstrap() {
   if (bootstrapped) return;
