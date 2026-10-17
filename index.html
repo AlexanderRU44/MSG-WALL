@@ -211,6 +211,7 @@
     font-size: 12px; letter-spacing: 1px; color: #999999;
   }
 
+  /* Сообщения */
   .msg {
     padding: 6px 0 6px 14px;
     border-left: 3px solid var(--accent);
@@ -237,7 +238,6 @@
     margin-left: 6px;
   }
 
-  /* Стрелка для ответа */
   .msg .reply-arrow {
     color: #888888;
     margin: 0 6px;
@@ -256,6 +256,14 @@
   }
   .msg.system .text { color: #888888; }
 
+  /* Служебные сообщения от команд (только для себя) */
+  .msg.local-status {
+    border-left-color: #888888;
+    color: #888888;
+    font-style: normal;
+  }
+  .msg.local-status .text { color: #888888; white-space: pre-wrap; }
+
   /* Область ввода */
   #input-area {
     display: none;
@@ -265,18 +273,16 @@
     border-top: 1px dashed #333333;
     z-index: 10;
     position: relative;
-    /* Flex column для управления порядком (меню снизу) */
     flex-direction: column;
   }
   #input-area.visible { display: flex; }
 
-  /* Поле ввода всегда первое (визуально сверху) */
   #input-area .input-row {
     display: flex;
     align-items: center;
     gap: 10px;
     flex-wrap: wrap;
-    order: 1; /* Строка ввода */
+    order: 1;
   }
 
   #input-area .input-prompt {
@@ -319,22 +325,10 @@
     cursor: default;
   }
 
-  #input-area .status {
-    order: 3; /* Статус в самом низу */
-    color: #666666;
-    font-size: 12px;
-    margin-top: 10px;
-    min-height: 20px;
-    white-space: pre-wrap;
-    line-height: 1.5;
-  }
-  #input-area .status.ok  { color: #51cf66; }
-  #input-area .status.err { color: #ff6b6b; }
-
-  /* Выпадающее меню (снизу) */
+  /* Выпадающее меню */
   #dropdown-menu {
     display: none;
-    order: 2; /* Между строкой ввода и статусом */
+    order: 2;
     margin-top: 10px;
     max-height: 200px;
     overflow-y: auto;
@@ -440,11 +434,7 @@
         <input id="msg-input" type="text" maxlength="500" placeholder="type a message, @nick or /command…" autocomplete="off" />
         <button id="send-btn">SEND</button>
       </div>
-      
-      <!-- Выпадающий список -->
       <div id="dropdown-menu"></div>
-      
-      <div class="status" id="input-status"></div>
     </div>
   </div>
 
@@ -557,6 +547,7 @@ let myNick = null;
 let nicksMap = {};
 let renderedCount = -1;
 let allItems = [];
+let isPrinting = false;
 
 // ============ DOM ============
 const sloganEl  = document.getElementById("slogan");
@@ -569,7 +560,6 @@ const keypadEl  = document.getElementById("keypad");
 const inputArea = document.getElementById("input-area");
 const msgInput  = document.getElementById("msg-input");
 const sendBtn   = document.getElementById("send-btn");
-const inputStatus = document.getElementById("input-status");
 const dropdownMenu = document.getElementById("dropdown-menu");
 
 // ============ Fetch ============
@@ -598,7 +588,13 @@ async function apiPost(path, payload) {
   catch { return { ok: false, reason: "parse" }; }
 }
 
-// ============ Render ============
+function scrollToBottom() {
+  setTimeout(() => {
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  }, 50);
+}
+
+// ============ Базовый рендер сообщения ============
 function authorLabelFor(msg) {
   if (msg.system) return null;
   if (msg.nick) return { text: "@" + msg.nick };
@@ -607,65 +603,143 @@ function authorLabelFor(msg) {
   return { text: "@" + msg.ip_hash };
 }
 
-function scrollToBottom() {
-  setTimeout(() => {
-    messagesEl.scrollTop = messagesEl.scrollHeight;
-  }, 50);
+function buildMessageHTML(m) {
+  if (m.system) {
+    return `
+      <div class="msg system">
+        <span class="when">${escapeHtml(formatLocalFromUTC(m.when || ""))}</span>
+        <span class="text">${escapeHtml(m.text || "")}</span>
+      </div>
+    `;
+  }
+
+  const c = colorForHash(m.ip_hash);
+  const a = authorLabelFor(m);
+  const when = formatLocalFromUTC(m.when || "");
+  
+  let replyHtml = "";
+  if (m.reply_to) {
+    let targetHash = m.reply_to;
+    for (const [hash, nick] of Object.entries(nicksMap)) {
+      if (nick === m.reply_to) { targetHash = hash; break; }
+    }
+    const targetColor = colorForHash(targetHash).accent;
+    replyHtml = `
+      <span class="reply-arrow">→</span>
+      <span class="reply-target" style="color: ${targetColor};">@${escapeHtml(m.reply_to)}</span>
+    `;
+  }
+
+  return `
+    <div class="msg" style="--accent:${c.accent};">
+      <span class="when">${escapeHtml(when)}</span>
+      <span class="who">${escapeHtml(a.text)}</span>
+      ${replyHtml}
+      <span class="text">${escapeHtml(m.text || "")}</span>
+    </div>
+  `;
 }
 
-function renderMessages(items) {
+// ============ Печать сообщения (живой эфир) ============
+async function animatePrintMessage(m) {
+  isPrinting = true;
+  
+  const div = document.createElement("div");
+  // Создаем пустой каркас
+  if (m.system) {
+    div.className = "msg system";
+    div.innerHTML = `<span class="when">${escapeHtml(formatLocalFromUTC(m.when || ""))}</span> <span class="text"></span>`;
+  } else {
+    const c = colorForHash(m.ip_hash);
+    const a = authorLabelFor(m);
+    const when = formatLocalFromUTC(m.when || "");
+    let replyHtml = "";
+    if (m.reply_to) {
+      let targetHash = m.reply_to;
+      for (const [hash, nick] of Object.entries(nicksMap)) {
+        if (nick === m.reply_to) { targetHash = hash; break; }
+      }
+      const targetColor = colorForHash(targetHash).accent;
+      replyHtml = `<span class="reply-arrow">→</span><span class="reply-target" style="color: ${targetColor};">@${escapeHtml(m.reply_to)}</span>`;
+    }
+    div.className = "msg";
+    div.style.setProperty("--accent", c.accent);
+    div.innerHTML = `
+      <span class="when">${escapeHtml(when)}</span>
+      <span class="who">${escapeHtml(a.text)}</span>
+      ${replyHtml}
+      <span class="text"></span>
+    `;
+  }
+
+  messagesEl.appendChild(div);
+  scrollToBottom();
+
+  const textEl = div.querySelector(".text");
+  const text = m.text || "";
+  
+  for (let i = 0; i < text.length; i++) {
+    textEl.textContent += text[i];
+    scrollToBottom();
+    await sleep(rand(15, 40));
+  }
+
+  isPrinting = false;
+}
+
+// ============ Рендер всей ленты ============
+async function renderMessages(items) {
   if (items.length === 0) {
     messagesEl.innerHTML = '<div class="tline"><span class="dim">&gt; no messages yet_</span></div>';
     return;
   }
 
-  messagesEl.innerHTML = items
-    .map(m => {
-      if (m.system) {
-        return `
-          <div class="msg system">
-            <span class="when">${escapeHtml(formatLocalFromUTC(m.when || ""))}</span>
-            <span class="text">${escapeHtml(m.text || "")}</span>
-          </div>
-        `;
-      }
+  // Если сейчас идет печать, не перерисовываем (ждем окончания)
+  if (isPrinting) return;
 
-      const c = colorForHash(m.ip_hash);
-      const a = authorLabelFor(m);
-      const when = formatLocalFromUTC(m.when || "");
-      
-      let replyHtml = "";
-      if (m.reply_to) {
-        let targetHash = m.reply_to;
-        for (const [hash, nick] of Object.entries(nicksMap)) {
-          if (nick === m.reply_to) {
-            targetHash = hash;
-            break;
-          }
-        }
-        const targetColor = colorForHash(targetHash).accent;
-        replyHtml = `
-          <span class="reply-arrow">→</span>
-          <span class="reply-target" style="color: ${targetColor};">@${escapeHtml(m.reply_to)}</span>
-        `;
-      }
-
-      return `
-        <div class="msg" style="--accent:${c.accent};">
-          <span class="when">${escapeHtml(when)}</span>
-          <span class="who">${escapeHtml(a.text)}</span>
-          ${replyHtml}
-          <span class="text">${escapeHtml(m.text || "")}</span>
-        </div>
-      `;
-    })
-    .join("");
-
+  // Ищем новые сообщения (которых нет в DOM)
+  // Для простоты: если количество изменилось, рендерим всё заново (но это ломает анимацию).
+  // Поэтому мы просто проверяем, если это первичная загрузка или был refresh.
+  
+  messagesEl.innerHTML = items.map(m => buildMessageHTML(m)).join("");
   renderedCount = items.length;
   scrollToBottom();
 }
 
-// ============ Dropdown (Упоминания и Команды) ============
+// ============ Команды и их вывод ============
+async function printLocalStatus(textLines) {
+  // Выводит текст в ленту сообщений, видимый только нам, с эффектом печати и стирания
+  const div = document.createElement("div");
+  div.className = "msg local-status";
+  div.innerHTML = `<span class="text" style="color:#888888; white-space: pre-wrap;"></span>`;
+  
+  messagesEl.appendChild(div);
+  scrollToBottom();
+  
+  const textEl = div.querySelector(".text");
+  const fullText = textLines.join("\n");
+
+  // Печатаем
+  for (let i = 0; i < fullText.length; i++) {
+    textEl.textContent += fullText[i];
+    scrollToBottom();
+    await sleep(rand(15, 30));
+  }
+
+  // Ждем
+  await sleep(4000);
+
+  // Стираем
+  for (let i = fullText.length; i > 0; i--) {
+    textEl.textContent = fullText.slice(0, i - 1);
+    scrollToBottom();
+    await sleep(rand(10, 20));
+  }
+  
+  div.remove();
+}
+
+// ============ Dropdown ============
 const COMMANDS = [
   { cmd: "nick", desc: "change your nick (e.g. /nick Vasya)" },
   { cmd: "help", desc: "show available commands" }
@@ -679,20 +753,12 @@ msgInput.addEventListener("input", () => {
   const lastAt = textBeforeCursor.lastIndexOf("@");
   const lastSlash = textBeforeCursor.lastIndexOf("/");
 
-  // Приоритет: если слэш ближе к курсору, чем @, и перед ним пробел/начало строки
   if (lastSlash !== -1 && lastSlash > lastAt && (lastSlash === 0 || textBeforeCursor[lastSlash - 1] === " ")) {
     const query = textBeforeCursor.slice(lastSlash + 1);
-    if (query.includes(" ")) {
-      dropdownMenu.classList.remove("visible");
-      return;
-    }
+    if (query.includes(" ")) { dropdownMenu.classList.remove("visible"); return; }
     
-    // Фильтруем команды
     const filtered = COMMANDS.filter(c => c.cmd.startsWith(query.toLowerCase()));
-    if (filtered.length === 0) {
-      dropdownMenu.classList.remove("visible");
-      return;
-    }
+    if (filtered.length === 0) { dropdownMenu.classList.remove("visible"); return; }
 
     dropdownMenu.innerHTML = filtered.map(c => `
       <div class="dropdown-item" data-type="cmd" data-val="${c.cmd}">
@@ -705,27 +771,17 @@ msgInput.addEventListener("input", () => {
     return;
   }
 
-  // Обработка @
   if (lastAt !== -1 && lastAt > lastSlash) {
     const query = textBeforeCursor.slice(lastAt + 1);
-    if (query.includes(" ")) {
-      dropdownMenu.classList.remove("visible");
-      return;
-    }
+    if (query.includes(" ")) { dropdownMenu.classList.remove("visible"); return; }
 
     const allNicks = [];
     for (const [hash, nick] of Object.entries(nicksMap)) {
       allNicks.push({ hash, nick });
     }
 
-    const filtered = allNicks.filter(item => 
-      item.nick.toLowerCase().includes(query.toLowerCase())
-    );
-
-    if (filtered.length === 0) {
-      dropdownMenu.classList.remove("visible");
-      return;
-    }
+    const filtered = allNicks.filter(item => item.nick.toLowerCase().includes(query.toLowerCase()));
+    if (filtered.length === 0) { dropdownMenu.classList.remove("visible"); return; }
 
     dropdownMenu.innerHTML = filtered.map(item => {
       const c = colorForHash(item.hash);
@@ -741,7 +797,6 @@ msgInput.addEventListener("input", () => {
   dropdownMenu.classList.remove("visible");
 });
 
-// Клик по элементу меню
 dropdownMenu.addEventListener("click", (e) => {
   const item = e.target.closest(".dropdown-item");
   if (!item) return;
@@ -841,9 +896,12 @@ async function submitCode() {
     nicksMap = await fetchNicks();
   } catch (e) { /* ignore */ }
 
-  renderMessages(allItems);
-  inputArea.classList.add("visible");
+  // Первичный рендер без анимации
+  messagesEl.innerHTML = allItems.map(m => buildMessageHTML(m)).join("");
+  renderedCount = allItems.length;
+  scrollToBottom();
   
+  inputArea.classList.add("visible");
   msgInput.focus();
   setTimeout(adjustHeight, 100);
 }
@@ -880,11 +938,6 @@ document.addEventListener("keydown", e => {
 });
 
 // ============ Send ============
-function setStatus(text, cls = "") {
-  inputStatus.textContent = text;
-  inputStatus.className = "status" + (cls ? " " + cls : "");
-}
-
 async function sendMessage() {
   const rawText = msgInput.value.trim();
   if (!rawText || !sessionCode) return;
@@ -895,19 +948,21 @@ async function sendMessage() {
     const arg = parts.slice(1).join(" ").trim();
 
     if (cmd === "/help" || cmd === "/commands") {
-      setStatus("Available commands:\n/nick <name> — change your nick\n/help — show this list", "ok");
       msgInput.value = "";
+      printLocalStatus(["Available commands:", "/nick <name> — change your nick", "/help — show this list"]);
       return;
     }
 
     if (cmd === "/nick" || cmd === "/name") {
       if (!arg) {
-        setStatus("error: usage /nick <name>", "err");
         msgInput.value = "";
+        printLocalStatus(["error: usage /nick <name>"]);
         return;
       }
 
-      setStatus("> changing nick…");
+      msgInput.value = "";
+      printLocalStatus(["> changing nick…"]);
+      
       const res = await apiPost("/nick", { code: sessionCode, nick: arg });
 
       if (!res.ok) {
@@ -923,27 +978,27 @@ async function sendMessage() {
           code: "code expired, reload page",
           http: "server error"
         };
-        setStatus("error: " + (reasons[res.reason] || res.reason), "err");
+        printLocalStatus(["error: " + (reasons[res.reason] || res.reason)]);
         return;
       }
 
       myNick = res.nick;
-      setStatus(`> success: your nick is now @${res.nick}`, "ok");
-      msgInput.value = "";
+      printLocalStatus([`> success: your nick is now @${res.nick}`]);
 
       try {
         nicksMap = await fetchNicks();
         allItems = await fetchMessages();
-        renderMessages(allItems);
+        messagesEl.innerHTML = allItems.map(m => buildMessageHTML(m)).join("");
+        renderedCount = allItems.length;
         metaEl.innerHTML = PROMPT_HTML + "total messages: " + allItems.length;
+        scrollToBottom();
       } catch (e) { /* ignore */ }
-
-      setTimeout(() => { setStatus(""); }, 4000);
+      
       return;
     }
 
-    setStatus("error: unknown command. type /help", "err");
     msgInput.value = "";
+    printLocalStatus(["error: unknown command. type /help"]);
     return;
   }
 
@@ -962,13 +1017,12 @@ async function sendMessage() {
   }
 
   sendBtn.disabled = true;
-  setStatus("> sending…");
+  msgInput.value = ""; 
 
   const payload = { code: sessionCode, text: textToSend };
   if (replyTo) payload.reply_to = replyTo;
 
   const res = await apiPost("/post", payload);
-
   sendBtn.disabled = false;
 
   if (!res.ok) {
@@ -978,21 +1032,29 @@ async function sendMessage() {
       github: "storage error",
       http: "server error"
     };
-    setStatus("> error: " + (reasons[res.reason] || res.reason), "err");
+    printLocalStatus(["> error: " + (reasons[res.reason] || res.reason)]);
     return;
   }
 
-  msgInput.value = "";
-  setStatus("> sent", "ok");
-
+  // После успешной отправки — перечитываем и рендерим (но по одному)
   try {
-    allItems = await fetchMessages();
-    nicksMap = await fetchNicks();
-    renderMessages(allItems);
+    const newItems = await fetchMessages();
+    
+    // Находим новые сообщения, которых еще нет
+    const oldCount = allItems.length;
+    const newMessages = newItems.slice(oldCount);
+    
+    allItems = newItems;
     metaEl.innerHTML = PROMPT_HTML + "total messages: " + allItems.length;
+    
+    // Анимированно печатаем каждое новое
+    for (const m of newMessages) {
+      await animatePrintMessage(m);
+      await sleep(300);
+    }
+    renderedCount = allItems.length;
+    
   } catch (e) { /* ignore */ }
-
-  setTimeout(() => { setStatus(""); }, 2000);
 }
 
 sendBtn.addEventListener("click", sendMessage);
@@ -1000,13 +1062,23 @@ sendBtn.addEventListener("click", sendMessage);
 // ============ Periodic refresh ============
 async function refresh() {
   if (!unlocked) return;
+  if (isPrinting) return; // Не мешаем печати
+  
   try {
     const items = await fetchMessages();
     if (items.length !== renderedCount) {
+      const newMessages = items.slice(renderedCount);
       allItems = items;
-      nicksMap = await fetchNicks();
-      renderMessages(allItems);
+      
+      // Печатаем только новые
+      for (const m of newMessages) {
+        await animatePrintMessage(m);
+        await sleep(300);
+      }
+      
+      nicksMap = await fetchNicks(); // обновляем ники
       metaEl.innerHTML = PROMPT_HTML + "total messages: " + allItems.length;
+      renderedCount = items.length;
     }
     document.getElementById("status").textContent = "// updated: " + nowLocalString();
   } catch (e) {
