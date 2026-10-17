@@ -210,7 +210,7 @@
     margin-left: 6px;
   }
 
-  /* Стили для системных сообщений (смена ника) */
+  /* Системные сообщения */
   .msg.system {
     border-left-color: #555555;
     background: rgba(255,255,255,0.02);
@@ -458,7 +458,7 @@ const msgInput  = document.getElementById("msg-input");
 const sendBtn   = document.getElementById("send-btn");
 const inputStatus = document.getElementById("input-status");
 
-// ============ Fetch from Render ============
+// ============ Fetch ============
 async function fetchMessages() {
   const res = await fetch(API + "/messages?t=" + Date.now(), { cache: "no-store" });
   if (!res.ok) throw new Error("messages HTTP " + res.status);
@@ -487,9 +487,12 @@ async function apiPost(path, payload) {
 
 // ============ Render ============
 function authorLabelFor(msg) {
-  // Если это системное сообщение, возвращаем null (ник не нужен)
   if (msg.system) return null;
   
+  // Если в сообщении сохранён ник — используем его
+  if (msg.nick) return { text: "@" + msg.nick };
+  
+  // Если нет — fallback на карту ников (для старых записей)
   const n = nicksMap[msg.ip_hash];
   if (n) return { text: "@" + n };
   return { text: "@" + msg.ip_hash };
@@ -501,7 +504,6 @@ function buildMessagesHTML(items) {
     .reverse()
     .map(m => {
       if (m.system) {
-        // Системное сообщение
         return `
           <div class="msg system">
             <span class="when">${escapeHtml(formatLocalFromUTC(m.when || ""))}</span>
@@ -510,7 +512,6 @@ function buildMessagesHTML(items) {
         `;
       }
 
-      // Обычное сообщение
       const c = colorForHash(m.ip_hash);
       const a = authorLabelFor(m);
       const when = formatLocalFromUTC(m.when || "");
@@ -648,20 +649,18 @@ async function sendMessage() {
   const rawText = msgInput.value.trim();
   if (!rawText || !sessionCode) return;
 
-  // === Обработка локальных команд ===
+  // === Команды ===
   if (rawText.startsWith("/")) {
     const parts = rawText.split(" ");
     const cmd = parts[0].toLowerCase();
     const arg = parts.slice(1).join(" ").trim();
 
-    // /help или /commands
     if (cmd === "/help" || cmd === "/commands") {
       setStatus("Available commands:\n/nick <name> — change your nick\n/help — show this list", "ok");
       msgInput.value = "";
       return;
     }
 
-    // /nick <name>
     if (cmd === "/nick" || cmd === "/name") {
       if (!arg) {
         setStatus("error: usage /nick <name>", "err");
@@ -689,14 +688,11 @@ async function sendMessage() {
         return;
       }
 
-      // Успешно сменили ник
-      const oldNickLabel = myNick ? "@" + myNick : "@" + myHash;
       myNick = res.nick;
-      
       setStatus(`> success: your nick is now @${res.nick}`, "ok");
       msgInput.value = "";
 
-      // Обновляем данные с сервера (там уже есть системное сообщение)
+      // обновляем данные (там уже создалось системное сообщение)
       try {
         nicksMap = await fetchNicks();
         allItems = await fetchMessages();
@@ -708,7 +704,6 @@ async function sendMessage() {
       return;
     }
 
-    // Неизвестная команда
     setStatus("error: unknown command. type /help", "err");
     msgInput.value = "";
     return;
@@ -736,7 +731,6 @@ async function sendMessage() {
   msgInput.value = "";
   setStatus("> sent", "ok");
 
-  // Мгновенно обновляем из Render
   try {
     allItems = await fetchMessages();
     nicksMap = await fetchNicks();
