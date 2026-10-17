@@ -109,6 +109,7 @@ let sessionCode = null;
 let myHash = null;
 let myNick = null;
 let nicksMap = {};
+let bansMap = {}; 
 let renderedCount = -1;
 let allItems = [];
 let isPrinting = false;
@@ -126,47 +127,43 @@ const msgInput  = document.getElementById("msg-input");
 const sendBtn   = document.getElementById("send-btn");
 const dropdownMenu = document.getElementById("dropdown-menu");
 const hiddenInput = document.getElementById("hidden-input");
-const adminPanel = document.getElementById("admin-panel");
-const gateHint = document.getElementById("gate-hint");
-const adminInputArea = document.getElementById("admin-input-area");
-const adminInput = document.getElementById("admin-code-input");
+
+// Создаем контекстное меню
+const contextMenu = document.createElement("div");
+contextMenu.id = "admin-context-menu";
+contextMenu.style.cssText = "display: none; position: fixed; background: #141414; border: 1px solid #333; border-radius: 4px; box-shadow: 0 4px 12px rgba(0,0,0,0.8); z-index: 1000; padding: 8px 0; min-width: 150px;";
+document.body.appendChild(contextMenu);
+document.addEventListener("click", () => { contextMenu.style.display = "none"; });
 
 // ============ Проверка режима админа ============
 const urlParams = new URLSearchParams(window.location.search);
 if (urlParams.has('admin')) {
-  gateHint.textContent = "enter admin code";
-  digitsEl.style.display = "none";
-  keypadEl.style.display = "none";
   if (hiddenInput) hiddenInput.style.display = "none";
-  adminInputArea.style.display = "block";
-  
-  if (adminInput) {
+  const adminArea = document.getElementById("admin-input-area");
+  if (adminArea) {
+    adminArea.style.display = "block";
+    document.getElementById("gate-hint").textContent = "enter admin code";
+    const adminInput = document.getElementById("admin-code-input");
     adminInput.focus();
     adminInput.addEventListener("keydown", async (e) => {
       if (e.key === "Enter") {
         const code = adminInput.value.trim();
         if (!code) return;
-        
         adminInput.disabled = true;
         const res = await apiPost("/verify", { code });
         adminInput.disabled = false;
-        
         if (res.ok && res.is_admin) {
           isAdminMode = true;
           sessionCode = code;
+          bansMap = res.bans || {};
+          myHash = res.hash;
+          myNick = res.nick;
           gateEl.classList.remove("visible");
-          adminPanel.style.display = "flex";
-          
           loadingEl.classList.remove("hidden");
           await typeCentered(loadingEl, "admin mode activated…", 40, 90);
           await sleep(400);
           loadingEl.classList.add("hidden");
-          
-          try {
-            allItems = await fetchMessages();
-            nicksMap = await fetchNicks();
-          } catch (err) {}
-          
+          try { allItems = await fetchMessages(); nicksMap = await fetchNicks(); } catch (err) {}
           renderMessages(allItems);
           inputArea.classList.add("visible");
           msgInput.focus();
@@ -178,13 +175,11 @@ if (urlParams.has('admin')) {
     });
   }
 } else {
-  // Обычный режим
   if (hiddenInput) {
     hiddenInput.addEventListener("input", (e) => {
       codeValue = e.target.value;
       if (codeValue.length > 30) codeValue = codeValue.slice(0, 30);
       updateDigitsUI();
-      
       if (codeValue.length > 4 || /[a-zA-Z]/.test(codeValue)) {
         if (codeValue.length >= 6) setTimeout(submitCode, 500);
       } else if (codeValue.length === 4) {
@@ -221,14 +216,16 @@ async function apiPost(path, payload) {
 }
 
 function scrollToBottom() {
-  setTimeout(() => {
-    messagesEl.scrollTop = messagesEl.scrollHeight;
-  }, 50);
+  setTimeout(() => { messagesEl.scrollTop = messagesEl.scrollHeight; }, 50);
 }
 
 // ============ Рендер ============
 function authorLabelFor(msg) {
   if (msg.system) return null;
+  
+  const isMe = (msg.ip_hash === myHash);
+  if (isAdminMode && isMe) return { text: "@Administrator", isAdmin: true };
+  
   if (msg.nick) return { text: "@" + msg.nick };
   const n = nicksMap[msg.ip_hash];
   if (n) return { text: "@" + n };
@@ -244,7 +241,7 @@ function renderSystemText(text) {
   });
 }
 
-function buildMessageHTML(m) {
+function buildMessageHTML(m, idx) {
   if (m.system) {
     return `
       <div class="msg system">
@@ -271,10 +268,20 @@ function buildMessageHTML(m) {
     `;
   }
 
+  let msgStyle = `--accent:${c.accent}; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px;`;
+  let msgClass = "msg";
+  if (isAdminMode && a.isAdmin) {
+    msgStyle = `--accent:#ffd43b; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px;`;
+    msgClass = "msg admin-msg";
+  }
+
+  const whoClick = (isAdminMode && !a.isAdmin) ? `onclick="showAdminMenu(event, '${m.ip_hash}', ${idx})" style="cursor:pointer;"` : "";
+  const whoHtml = `<span class="who" ${whoClick}>${escapeHtml(a.text)}</span>`;
+
   return `
-    <div class="msg" style="--accent:${c.accent}; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px;">
+    <div class="${msgClass}" style="${msgStyle}">
       <span class="when">${escapeHtml(when)}</span>
-      <span class="who">${escapeHtml(a.text)}</span>
+      ${whoHtml}
       ${replyHtml}
       <span class="text">${escapeHtml(m.text || "")}</span>
     </div>
@@ -284,7 +291,6 @@ function buildMessageHTML(m) {
 async function animatePrintMessage(m) {
   isPrinting = true;
   const div = document.createElement("div");
-  
   if (m.system) {
     div.className = "msg system";
     div.innerHTML = `<span class="when">${escapeHtml(formatLocalFromUTC(m.when || ""))}</span> <span class="text"></span>`;
@@ -311,12 +317,16 @@ async function animatePrintMessage(m) {
       const targetColor = colorForHash(targetHash).accent;
       replyHtml = `<span class="reply-arrow">→</span><span class="reply-target" style="color: ${targetColor};">@${escapeHtml(m.reply_to)}</span>`;
     }
-    div.className = "msg";
-    div.style.setProperty("--accent", c.accent);
-    div.style.display = "flex";
-    div.style.flexWrap = "wrap";
-    div.style.alignItems = "baseline";
-    div.style.gap = "4px";
+    
+    let msgStyle = `--accent:${c.accent}; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px;`;
+    let msgClass = "msg";
+    if (isAdminMode && a.isAdmin) {
+      msgStyle = `--accent:#ffd43b; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px;`;
+      msgClass = "msg admin-msg";
+    }
+    
+    div.className = msgClass;
+    div.style.cssText = msgStyle;
     div.innerHTML = `
       <span class="when">${escapeHtml(when)}</span>
       <span class="who">${escapeHtml(a.text)}</span>
@@ -342,7 +352,7 @@ async function renderMessages(items) {
     return;
   }
   if (isPrinting) return;
-  messagesEl.innerHTML = items.map(m => buildMessageHTML(m)).join("");
+  messagesEl.innerHTML = items.map((m, i) => buildMessageHTML(m, i)).join("");
   renderedCount = items.length;
   scrollToBottom();
 }
@@ -369,22 +379,64 @@ async function printLocalStatus(textLines) {
   div.remove();
 }
 
-// ==== АДМИНСКИЕ ДЕЙСТВИЯ ====
-async function promptBan() {
-  const targetHash = prompt("Введите хэш пользователя для бана (например, 26ca3659):");
-  if (!targetHash) return;
-  const res = await apiPost("/admin/ban", { code: sessionCode, hash: targetHash.trim() });
-  if (res.ok) alert("Пользователь забанен.");
-  else alert("Ошибка: " + res.reason);
-}
+// ============ Контекстное меню админа ============
+window.showAdminMenu = function(e, hash, idx) {
+  if (!isAdminMode) return;
+  e.stopPropagation();
+  
+  const isBanned = bansMap[hash] === true;
+  const banText = isBanned ? "Разбанить пользователя" : "Забанить пользователя";
+  
+  contextMenu.innerHTML = `
+    <div class="menu-item" onclick="deleteMsg(${idx})" style="padding: 10px 16px; cursor: pointer; color: #ff6b6b;">Удалить сообщение</div>
+    <div class="menu-item" onclick="toggleBan('${hash}')" style="padding: 10px 16px; cursor: pointer; color: #ffa94d;">${banText}</div>
+  `;
+  
+  const rect = e.target.getBoundingClientRect();
+  contextMenu.style.display = "block";
+  contextMenu.style.left = Math.min(rect.left, window.innerWidth - 200) + "px";
+  contextMenu.style.top = (rect.bottom + 10) + "px";
+};
 
-async function promptUnban() {
-  const targetHash = prompt("Введите хэш пользователя для разбана:");
-  if (!targetHash) return;
-  const res = await apiPost("/admin/unban", { code: sessionCode, hash: targetHash.trim() });
-  if (res.ok) alert("Пользователь разбанен.");
-  else alert("Ошибка: " + res.reason);
-}
+window.deleteMsg = async function(idx) {
+  contextMenu.style.display = "none";
+  const res = await apiPost("/admin/delete", { code: sessionCode, index: idx });
+  if (res.ok) {
+    const msgEls = messagesEl.querySelectorAll(".msg");
+    if (msgEls[idx]) {
+      const el = msgEls[idx];
+      const textEl = el.querySelector(".text");
+      if (textEl) {
+        const fullText = textEl.textContent;
+        for (let i = fullText.length; i > 0; i--) {
+          textEl.textContent = fullText.slice(0, i - 1);
+          await sleep(10);
+        }
+      }
+      el.style.transition = "opacity 0.3s";
+      el.style.opacity = "0";
+      await sleep(300);
+    }
+    try { allItems = await fetchMessages(); renderMessages(allItems); } catch(e){}
+  } else {
+    alert("Ошибка удаления");
+  }
+};
+
+window.toggleBan = async function(hash) {
+  contextMenu.style.display = "none";
+  const isBanned = bansMap[hash] === true;
+  const endpoint = isBanned ? "/admin/unban" : "/admin/ban";
+  
+  const res = await apiPost(endpoint, { code: sessionCode, hash: hash });
+  if (res.ok) {
+    bansMap[hash] = !isBanned;
+    alert(isBanned ? "Пользователь разбанен" : "Пользователь забанен");
+    try { allItems = await fetchMessages(); renderMessages(allItems); } catch(e){}
+  } else {
+    alert("Ошибка");
+  }
+};
 
 // ============ Code gate ============
 function updateDigitsUI() {
@@ -394,13 +446,8 @@ function updateDigitsUI() {
     return;
   }
   cells.forEach((cell, i) => {
-    if (i < codeValue.length) {
-      cell.textContent = codeValue[i];
-      cell.classList.remove("active");
-    } else {
-      cell.textContent = "";
-      cell.classList.toggle("active", i === codeValue.length);
-    }
+    if (i < codeValue.length) { cell.textContent = codeValue[i]; cell.classList.remove("active"); }
+    else { cell.textContent = ""; cell.classList.toggle("active", i === codeValue.length); }
   });
 }
 
@@ -415,28 +462,15 @@ async function submitCode() {
       inputArea.classList.remove("visible");
       return;
     }
-    codeValue = "";
-    if (hiddenInput) hiddenInput.value = "";
-    updateDigitsUI();
-    return;
+    codeValue = ""; if (hiddenInput) hiddenInput.value = ""; updateDigitsUI(); return;
   }
-  unlocked = true;
-  sessionCode = code;
-  myHash = res.hash;
-  myNick = res.nick;
-  codeValue = "";
-  if (hiddenInput) hiddenInput.value = "";
-  updateDigitsUI();
+  unlocked = true; sessionCode = code; myHash = res.hash; myNick = res.nick; bansMap = res.bans || {};
+  codeValue = ""; if (hiddenInput) hiddenInput.value = ""; updateDigitsUI();
   gateEl.classList.remove("visible");
-  loadingEl.textContent = "";
-  loadingEl.classList.remove("hidden");
+  loadingEl.textContent = ""; loadingEl.classList.remove("hidden");
   await typeCentered(loadingEl, "loading…", 40, 90);
-  await sleep(400);
-  loadingEl.classList.add("hidden");
-  try {
-    allItems = await fetchMessages();
-    nicksMap = await fetchNicks();
-  } catch (e) {}
+  await sleep(400); loadingEl.classList.add("hidden");
+  try { allItems = await fetchMessages(); nicksMap = await fetchNicks(); } catch (e) {}
   renderMessages(allItems);
   inputArea.classList.add("visible");
   if (msgInput) msgInput.focus();
@@ -445,62 +479,46 @@ async function submitCode() {
 
 if (keypadEl) {
   keypadEl.addEventListener("click", e => {
-    const btn = e.target.closest("button[data-key]");
-    if (!btn) return;
+    const btn = e.target.closest("button[data-key]"); if (!btn) return;
     const key = btn.dataset.key;
     if (key === "clear") { codeValue = ""; if (hiddenInput) hiddenInput.value = ""; updateDigitsUI(); return; }
     if (key === "back") { codeValue = codeValue.slice(0, -1); if (hiddenInput) hiddenInput.value = codeValue; updateDigitsUI(); return; }
     if (codeValue.length >= 4 && !/[a-zA-Z]/.test(codeValue)) return;
-    codeValue += key;
-    if (hiddenInput) hiddenInput.value = codeValue;
-    updateDigitsUI();
+    codeValue += key; if (hiddenInput) hiddenInput.value = codeValue; updateDigitsUI();
     if (codeValue.length === 4) setTimeout(submitCode, 200);
   });
 }
 
 // ============ Dropdown ============
 const COMMANDS = [
-  { cmd: "nick", desc: "change your nick (e.g. /nick Vasya)" },
+  { cmd: "nick", desc: "change your nick" },
   { cmd: "help", desc: "show available commands" },
-  { cmd: "online", desc: "show how many users are online" }
+  { cmd: "online", desc: "show online users" }
 ];
 
 if (msgInput) {
   msgInput.addEventListener("keyup", () => {
-    const val = msgInput.value;
-    const cursorPos = msgInput.selectionStart;
-    const textBeforeCursor = val.slice(0, cursorPos);
-    const lastAt = textBeforeCursor.lastIndexOf("@");
-    const lastSlash = textBeforeCursor.lastIndexOf("/");
+    const val = msgInput.value; const cursorPos = msgInput.selectionStart; const textBeforeCursor = val.slice(0, cursorPos);
+    const lastAt = textBeforeCursor.lastIndexOf("@"); const lastSlash = textBeforeCursor.lastIndexOf("/");
     if (lastSlash !== -1 && lastSlash > lastAt && (lastSlash === 0 || textBeforeCursor[lastSlash - 1] === " ")) {
       const query = textBeforeCursor.slice(lastSlash + 1);
       if (query.includes(" ")) { dropdownMenu.classList.remove("visible"); return; }
       const filtered = COMMANDS.filter(c => c.cmd.startsWith(query.toLowerCase()));
       if (filtered.length === 0) { dropdownMenu.classList.remove("visible"); return; }
-      dropdownMenu.innerHTML = filtered.map(c => `
-        <div class="dropdown-item" data-type="cmd" data-val="${c.cmd}">
-          <span>/${c.cmd}</span>
-          <span class="cmd-desc">${c.desc}</span>
-        </div>
-      `).join("");
-      dropdownMenu.classList.add("visible");
-      return;
+      dropdownMenu.innerHTML = filtered.map(c => `<div class="dropdown-item" data-type="cmd" data-val="${c.cmd}"><span>/${c.cmd}</span><span class="cmd-desc">${c.desc}</span></div>`).join("");
+      dropdownMenu.classList.add("visible"); return;
     }
     if (lastAt !== -1 && lastAt > lastSlash) {
       const query = textBeforeCursor.slice(lastAt + 1);
       if (query.includes(" ")) { dropdownMenu.classList.remove("visible"); return; }
-      const allNicks = [];
-      for (const [hash, nick] of Object.entries(nicksMap)) allNicks.push({ hash, nick });
+      const allNicks = []; for (const [hash, nick] of Object.entries(nicksMap)) allNicks.push({ hash, nick });
       const filtered = allNicks.filter(item => item.nick.toLowerCase().includes(query.toLowerCase()));
       if (filtered.length === 0) { dropdownMenu.classList.remove("visible"); return; }
       dropdownMenu.innerHTML = filtered.map(item => {
         const c = colorForHash(item.hash);
-        return `<div class="dropdown-item" data-type="nick" data-val="${escapeHtml(item.nick)}">
-          <span class="nick-color" style="color: ${c.accent}">@${escapeHtml(item.nick)}</span>
-        </div>`;
+        return `<div class="dropdown-item" data-type="nick" data-val="${escapeHtml(item.nick)}"><span class="nick-color" style="color: ${c.accent}">@${escapeHtml(item.nick)}</span></div>`;
       }).join("");
-      dropdownMenu.classList.add("visible");
-      return;
+      dropdownMenu.classList.add("visible"); return;
     }
     dropdownMenu.classList.remove("visible");
   });
@@ -508,13 +526,9 @@ if (msgInput) {
 
 if (dropdownMenu) {
   dropdownMenu.addEventListener("click", (e) => {
-    const item = e.target.closest(".dropdown-item");
-    if (!item) return;
-    const type = item.dataset.type;
-    const val = item.dataset.val;
-    const valText = msgInput.value;
-    const cursorPos = msgInput.selectionStart;
-    const textBeforeCursor = valText.slice(0, cursorPos);
+    const item = e.target.closest(".dropdown-item"); if (!item) return;
+    const type = item.dataset.type; const val = item.dataset.val;
+    const valText = msgInput.value; const cursorPos = msgInput.selectionStart; const textBeforeCursor = valText.slice(0, cursorPos);
     let newValue = "";
     if (type === "nick") {
       const lastAt = textBeforeCursor.lastIndexOf("@");
@@ -523,9 +537,7 @@ if (dropdownMenu) {
       const lastSlash = textBeforeCursor.lastIndexOf("/");
       newValue = valText.slice(0, lastSlash) + "/" + val + " " + valText.slice(cursorPos);
     }
-    msgInput.value = newValue;
-    dropdownMenu.classList.remove("visible");
-    msgInput.focus();
+    msgInput.value = newValue; dropdownMenu.classList.remove("visible"); msgInput.focus();
   });
 }
 
@@ -537,153 +549,66 @@ document.addEventListener("click", (e) => {
 
 // ============ Send ============
 async function sendMessage() {
-  const rawText = msgInput.value.trim();
-  if (!rawText || !sessionCode) return;
+  const rawText = msgInput.value.trim(); if (!rawText || !sessionCode) return;
   if (rawText.startsWith("/")) {
-    const parts = rawText.split(" ");
-    const cmd = parts[0].toLowerCase();
-    const arg = parts.slice(1).join(" ").trim();
-    if (cmd === "/help" || cmd === "/commands") {
-      msgInput.value = "";
-      printLocalStatus(["Available commands:", "/nick <name> — change your nick", "/help — show this list", "/online — show online users"]);
-      return;
-    }
+    const parts = rawText.split(" "); const cmd = parts[0].toLowerCase(); const arg = parts.slice(1).join(" ").trim();
+    if (cmd === "/help") { msgInput.value = ""; printLocalStatus(["Commands:", "/nick <name> — change nick", "/online — online users"]); return; }
     if (cmd === "/online") {
-      msgInput.value = "";
-      printLocalStatus(["> checking online users…"]);
-      try {
-        const res = await fetch(API + "/online");
-        const data = await res.json();
-        if (data.ok) printLocalStatus([`> online users: ${data.online}`]);
-        else printLocalStatus(["error: failed to get online count"]);
-      } catch (e) {
-        printLocalStatus(["error: " + e.message]);
-      }
+      msgInput.value = ""; printLocalStatus(["> checking…"]);
+      try { const res = await fetch(API + "/online"); const data = await res.json(); printLocalStatus([`> online: ${data.online}`]); } catch (e) {}
       return;
     }
-    if (cmd === "/nick" || cmd === "/name") {
-      if (!arg) {
-        msgInput.value = "";
-        printLocalStatus(["error: usage /nick <name>"]);
-        return;
-      }
-      msgInput.value = "";
-      printLocalStatus(["> changing nick…"]);
+    if (cmd === "/nick") {
+      if (!arg) { msgInput.value = ""; printLocalStatus(["error: usage /nick <name>"]); return; }
+      msgInput.value = ""; printLocalStatus(["> changing nick…"]);
       const res = await apiPost("/nick", { code: sessionCode, nick: arg });
-      if (!res.ok) {
-        const reasons = {
-          short: "nick must be 2–20 characters",
-          long: "nick must be 2–20 characters",
-          space: "no spaces allowed",
-          chars: "only letters, digits, _ and -",
-          reserved: "this nick is reserved",
-          taken: "this nick is already taken, try another",
-          cooldown: `wait ${res.wait || 0}s before changing again`,
-          github: "storage error",
-          code: "code expired, reload page",
-          http: "server error"
-        };
-        printLocalStatus(["error: " + (reasons[res.reason] || res.reason)]);
-        return;
-      }
-      myNick = res.nick;
-      printLocalStatus([`> success: your nick is now @${res.nick}`]);
-      try {
-        nicksMap = await fetchNicks();
-        allItems = await fetchMessages();
-        renderMessages(allItems);
-        metaEl.innerHTML = PROMPT_HTML + "total messages: " + allItems.length;
-      } catch (e) {}
+      if (!res.ok) { printLocalStatus(["error: " + res.reason]); return; }
+      myNick = res.nick; printLocalStatus([`> success: @${res.nick}`]);
+      try { nicksMap = await fetchNicks(); allItems = await fetchMessages(); renderMessages(allItems); metaEl.innerHTML = PROMPT_HTML + "total messages: " + allItems.length; } catch (e) {}
       return;
     }
-    msgInput.value = "";
-    printLocalStatus(["error: unknown command. type /help"]);
-    return;
+    msgInput.value = ""; printLocalStatus(["error: unknown command"]); return;
   }
-  let replyTo = null;
-  let textToSend = rawText;
+  let replyTo = null; let textToSend = rawText;
   const match = rawText.match(/^@([a-zA-Z0-9_\-а-яА-Я]+)\s+(.+)$/);
-  if (match) {
-    const targetNick = match[1];
-    const remainingText = match[2];
-    const knownNicks = Object.values(nicksMap);
-    if (knownNicks.includes(targetNick)) {
-      replyTo = targetNick;
-      textToSend = remainingText;
-    }
-  }
-  sendBtn.disabled = true;
-  msgInput.value = "";
-  const payload = { code: sessionCode, text: textToSend };
-  if (replyTo) payload.reply_to = replyTo;
-  const res = await apiPost("/post", payload);
-  sendBtn.disabled = false;
-  if (!res.ok) {
-    const reasons = {
-      code: "code expired, reload page",
-      empty: "message is empty",
-      github: "storage error",
-      http: "server error"
-    };
-    printLocalStatus(["> error: " + (reasons[res.reason] || res.reason)]);
-    return;
-  }
+  if (match) { const targetNick = match[1]; const remainingText = match[2]; if (Object.values(nicksMap).includes(targetNick)) { replyTo = targetNick; textToSend = remainingText; } }
+  sendBtn.disabled = true; msgInput.value = "";
+  const payload = { code: sessionCode, text: textToSend }; if (replyTo) payload.reply_to = replyTo;
+  const res = await apiPost("/post", payload); sendBtn.disabled = false;
+  if (!res.ok) { printLocalStatus(["> error: " + res.reason]); return; }
   try {
-    const newItems = await fetchMessages();
-    const oldCount = allItems.length;
-    const newMessages = newItems.slice(oldCount);
-    allItems = newItems;
-    metaEl.innerHTML = PROMPT_HTML + "total messages: " + allItems.length;
-    for (const m of newMessages) {
-      await animatePrintMessage(m);
-      await sleep(300);
-    }
+    const newItems = await fetchMessages(); const oldCount = allItems.length; const newMessages = newItems.slice(oldCount);
+    allItems = newItems; metaEl.innerHTML = PROMPT_HTML + "total messages: " + allItems.length;
+    for (const m of newMessages) { await animatePrintMessage(m); await sleep(300); }
     renderedCount = allItems.length;
   } catch (e) {}
 }
-
 if (sendBtn) sendBtn.addEventListener("click", sendMessage);
 
 // ============ Periodic refresh ============
 async function refresh() {
-  if (!unlocked) return;
-  if (isPrinting) return;
+  if (!unlocked) return; if (isPrinting) return;
   try {
     const items = await fetchMessages();
     if (items.length !== renderedCount) {
-      const newMessages = items.slice(renderedCount);
-      allItems = items;
-      for (const m of newMessages) {
-        await animatePrintMessage(m);
-        await sleep(300);
-      }
-      nicksMap = await fetchNicks();
-      metaEl.innerHTML = PROMPT_HTML + "total messages: " + allItems.length;
-      renderedCount = items.length;
+      const newMessages = items.slice(renderedCount); allItems = items;
+      for (const m of newMessages) { await animatePrintMessage(m); await sleep(300); }
+      nicksMap = await fetchNicks(); metaEl.innerHTML = PROMPT_HTML + "total messages: " + allItems.length; renderedCount = items.length;
     }
     document.getElementById("status").textContent = "// updated: " + nowLocalString();
-  } catch (e) {
-    document.getElementById("status").textContent = "// load error: " + e.message;
-  }
+  } catch (e) { document.getElementById("status").textContent = "// load error: " + e.message; }
 }
 
 // ============ Bootstrap (Инициализация) ============
 let bootstrapped = false;
 async function bootstrap() {
-  if (bootstrapped) return;
-  bootstrapped = true;
+  if (bootstrapped) return; bootstrapped = true;
   await typeInto(sloganEl, SLOGAN_TEXT, 30, 70);
   await sleep(300);
-  try {
-    allItems = await fetchMessages();
-    nicksMap = await fetchNicks();
-  } catch (e) {
-    allItems = []; nicksMap = {};
-  }
+  try { allItems = await fetchMessages(); nicksMap = await fetchNicks(); } catch (e) { allItems = []; nicksMap = {}; }
   await typeInto(metaEl, "total messages: " + allItems.length, 25, 50);
   gateEl.classList.add("visible");
   updateDigitsUI();
 }
-
 bootstrap();
 setInterval(refresh, REFRESH_MS);
