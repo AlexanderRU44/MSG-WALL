@@ -41,17 +41,19 @@ repo = g.get_repo(REPO_NAME)
 DATA_BRANCH    = "data"
 MESSAGES_PATH  = os.environ.get("FILE_PATH", "messages.jsonl")
 NICKS_PATH     = "nicks.jsonl"
+BANS_PATH      = "bans.jsonl"
 
 # --- In-memory cache ---
 _cache = {
     "messages": [],
     "nicks": {},
+    "bans": {},
     "loaded": False,
 }
 
 # --- Online tracking ---
 active_users = {}
-ONLINE_TIMEOUT = 60  # секунд
+ONLINE_TIMEOUT = 60
 
 # --- Nick change rate limit ---
 nick_last_change = {}
@@ -66,18 +68,15 @@ RESERVED = {"admin", "unknown", "anon", "system", "root", "me", "null"}
 def encrypt_str(s: str) -> str:
     return fernet.encrypt(s.encode("utf-8")).decode("utf-8")
 
-
 def decrypt_str(token: str) -> str | None:
     try:
         return fernet.decrypt(token.encode("utf-8")).decode("utf-8")
     except (InvalidToken, Exception):
         return None
 
-
 def pack_record(record: dict) -> str:
     raw = json.dumps(record, ensure_ascii=False)
     return encrypt_str(raw)
-
 
 def unpack_record(line: str) -> dict | None:
     decrypted = decrypt_str(line)
@@ -100,11 +99,9 @@ def daily_code() -> str:
     num = int(h[:8], 16) % 10000
     return f"{num:04d}"
 
-
 def ip_hash(ip: str) -> str:
     h = hashlib.sha256((SECRET_SALT + ip).encode()).hexdigest()
     return h[:8]
-
 
 def valid_nick(nick: str) -> tuple[bool, str]:
     if not isinstance(nick, str):
@@ -123,7 +120,6 @@ def valid_nick(nick: str) -> tuple[bool, str]:
             return False, "chars"
     return True, nick
 
-
 def get_contents(path: str) -> tuple[str, str | None]:
     try:
         f = repo.get_contents(path, ref=DATA_BRANCH)
@@ -133,13 +129,11 @@ def get_contents(path: str) -> tuple[str, str | None]:
             return "", None
         raise
 
-
 def write_contents(path: str, content: str, sha: str | None, message: str):
     if sha is None:
         repo.create_file(path, message, content, branch=DATA_BRANCH)
     else:
         repo.update_file(path, message, content, sha=sha, branch=DATA_BRANCH)
-
 
 def append_to_file(path: str, encrypted_line: str):
     for attempt in range(3):
@@ -171,7 +165,6 @@ def load_messages_from_github() -> list:
             items.append(rec)
     return items
 
-
 def load_nicks_from_github() -> dict:
     content, _ = get_contents(NICKS_PATH)
     result = {}
@@ -188,14 +181,31 @@ def load_nicks_from_github() -> dict:
             result[h] = n
     return result
 
+def load_bans_from_github() -> dict:
+    content, _ = get_contents(BANS_PATH)
+    result = {}
+    for line in content.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            rec = json.loads(line)
+            h = rec.get("hash")
+            banned = rec.get("banned", False)
+            if h:
+                result[h] = banned
+        except json.JSONDecodeError:
+            continue
+    return result
 
 def refresh_cache():
     try:
         _cache["messages"] = load_messages_from_github()
         _cache["nicks"] = load_nicks_from_github()
+        _cache["bans"] = load_bans_from_github()
         _cache["loaded"] = True
         print(f"[cache] loaded {len(_cache['messages'])} messages, "
-              f"{len(_cache['nicks'])} nicks")
+              f"{len(_cache['nicks'])} nicks, {len(_cache['bans'])} ban records")
     except Exception as e:
         print(f"[cache] refresh error: {e}")
 
@@ -229,7 +239,6 @@ def set_nick(h: str, nick: str):
 
 def update_online(h: str):
     active_users[h] = time.time()
-
 
 def get_online_count() -> int:
     now = time.time()
@@ -312,10 +321,17 @@ class Handler(BaseHTTPRequestHandler):
         if code != daily_code():
             return self._send_json({"ok": False, "reason": "code"})
 
+        if _cache["bans"].get(h) is True:
+            return self._send_json({"ok": False, "reason": "banned"})
+
         if self.path == "/verify":
             update_online(h)
             if not _cache["loaded"]:
                 refresh_cache()
+                
+            if _cache["bans"].get(h) is True:
+                return self._send_json({"ok": False, "reason": "banned"})
+
             return self._send_json({
                 "ok": True,
                 "hash": h,
@@ -418,7 +434,6 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "then enter it on the wall website to read and write messages."
     )
 
-
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "How it works:\n"
@@ -431,7 +446,6 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/code — today's access code\n"
         "/help — this help"
     )
-
 
 async def cmd_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
     code = daily_code()

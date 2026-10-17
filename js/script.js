@@ -446,6 +446,15 @@ async function submitCode() {
   const res = await apiPost("/verify", { code });
 
   if (!res.ok) {
+    if (res.reason === "banned") {
+      // Если забанен — показываем сообщение
+      gateEl.classList.remove("visible");
+      messagesEl.innerHTML = '<div class="tline"><span class="err" style="font-size: 1.2rem; display: block; margin-top: 20px;">&gt; access denied. you are banned.</span></div>';
+      inputArea.classList.remove("visible");
+      return;
+    }
+    
+    // Неверный код
     codeValue = "";
     updateDigitsUI();
     return;
