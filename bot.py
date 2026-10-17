@@ -50,9 +50,8 @@ _cache = {
 }
 
 # --- Online tracking ---
-# ip_hash -> last_seen_timestamp
 active_users = {}
-ONLINE_TIMEOUT = 60  # секунд (если запрос был менее минуты назад - считаем онлайн)
+ONLINE_TIMEOUT = 60  # секунд
 
 # --- Nick change rate limit ---
 nick_last_change = {}
@@ -234,11 +233,9 @@ def update_online(h: str):
 
 def get_online_count() -> int:
     now = time.time()
-    # Удаляем тех, кто не заходил больше минуты
     to_remove = [h for h, last_seen in active_users.items() if now - last_seen > ONLINE_TIMEOUT]
     for h in to_remove:
         del active_users[h]
-    
     return len(active_users)
 
 
@@ -276,19 +273,19 @@ class Handler(BaseHTTPRequestHandler):
         h = ip_hash(ip)
 
         if self.path.startswith("/messages"):
-            update_online(h)  # Отмечаем активность
+            update_online(h)
             if not _cache["loaded"]:
                 refresh_cache()
-            return self._send_json({
-                "ok": True, 
-                "messages": _cache["messages"],
-                "online": get_online_count() # Передаем количество онлайн
-            })
+            return self._send_json({"ok": True, "messages": _cache["messages"]})
 
         if self.path.startswith("/nicks"):
             if not _cache["loaded"]:
                 refresh_cache()
             return self._send_json({"ok": True, "nicks": _cache["nicks"]})
+
+        if self.path.startswith("/online"):
+            update_online(h)
+            return self._send_json({"ok": True, "online": get_online_count()})
 
         if self.path.startswith("/refresh"):
             refresh_cache()
