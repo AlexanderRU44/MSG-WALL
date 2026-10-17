@@ -210,6 +210,15 @@
     margin-left: 6px;
   }
 
+  /* Стили для системных сообщений (смена ника) */
+  .msg.system {
+    border-left-color: #555555;
+    background: rgba(255,255,255,0.02);
+    color: #888888;
+    font-style: italic;
+  }
+  .msg.system .text { color: #888888; }
+
   #input-area {
     display: none;
     margin-top: 30px;
@@ -269,80 +278,12 @@
     color: #666666;
     font-size: 12px;
     margin-top: 10px;
-    min-height: 16px;
+    min-height: 32px;
+    white-space: pre-wrap;
+    line-height: 1.5;
   }
-
-  #nick-modal {
-    display: none;
-    position: fixed;
-    inset: 0;
-    background: rgba(0,0,0,0.85);
-    z-index: 200;
-    align-items: center;
-    justify-content: center;
-    padding: 20px;
-  }
-  #nick-modal.visible { display: flex; }
-
-  #nick-modal .box {
-    background: #0d0d0d;
-    border: 1px solid #333333;
-    border-radius: 6px;
-    padding: 24px;
-    max-width: 420px;
-    width: 100%;
-    text-align: center;
-  }
-  #nick-modal .title {
-    color: #ffffff;
-    font-size: 15px;
-    letter-spacing: 1px;
-    margin-bottom: 16px;
-  }
-  #nick-modal input {
-    width: 100%;
-    background: #141414;
-    border: 1px solid #333333;
-    border-radius: 4px;
-    color: #ffffff;
-    font-family: inherit;
-    font-size: 16px;
-    padding: 10px 12px;
-    outline: none;
-    text-align: center;
-    letter-spacing: 1px;
-  }
-  #nick-modal input:focus { border-color: #666666; }
-
-  #nick-modal .row {
-    display: flex;
-    gap: 10px;
-    margin-top: 16px;
-  }
-  #nick-modal button {
-    flex: 1;
-    background: transparent;
-    border: 1px solid #333333;
-    border-radius: 4px;
-    color: #999999;
-    font-family: inherit;
-    font-size: 13px;
-    letter-spacing: 1px;
-    padding: 10px 12px;
-    cursor: pointer;
-    transition: color 0.2s, border-color 0.2s;
-  }
-  #nick-modal button.primary { color: #51cf66; border-color: #2c5a3a; }
-  #nick-modal button:hover { color: #ffffff; border-color: #666666; }
-
-  #nick-modal .msg {
-    margin-top: 14px;
-    font-size: 13px;
-    min-height: 18px;
-    color: #888888;
-  }
-  #nick-modal .msg.ok  { color: #51cf66; }
-  #nick-modal .msg.err { color: #ff6b6b; }
+  #input-area .status.ok  { color: #51cf66; }
+  #input-area .status.err { color: #ff6b6b; }
 
   #status {
     position: fixed;
@@ -402,23 +343,10 @@
     <div id="input-area">
       <div class="row">
         <span class="input-prompt">&gt;</span>
-        <input id="msg-input" type="text" maxlength="500" placeholder="type a message…" autocomplete="off" />
+        <input id="msg-input" type="text" maxlength="500" placeholder="type a message or /help…" autocomplete="off" />
         <button id="send-btn">SEND</button>
-        <button id="nick-btn">CHANGE NICK</button>
       </div>
       <div class="status" id="input-status"></div>
-    </div>
-  </div>
-
-  <div id="nick-modal">
-    <div class="box">
-      <div class="title">change nick</div>
-      <input id="nick-input" type="text" maxlength="20" placeholder="new nick" autocomplete="off" />
-      <div class="row">
-        <button id="nick-cancel">CANCEL</button>
-        <button id="nick-save" class="primary">SAVE</button>
-      </div>
-      <div class="msg" id="nick-msg"></div>
     </div>
   </div>
 
@@ -426,7 +354,6 @@
   <div id="status"></div>
 
 <script>
-// ============ Data source: Render, не GitHub ============
 const API = "https://msg-wall.onrender.com";
 const REFRESH_MS = 5000;
 const SLOGAN_TEXT = "write it — and it stays";
@@ -530,12 +457,6 @@ const inputArea = document.getElementById("input-area");
 const msgInput  = document.getElementById("msg-input");
 const sendBtn   = document.getElementById("send-btn");
 const inputStatus = document.getElementById("input-status");
-const nickBtn   = document.getElementById("nick-btn");
-const nickModal = document.getElementById("nick-modal");
-const nickInput = document.getElementById("nick-input");
-const nickMsg   = document.getElementById("nick-msg");
-const nickSave  = document.getElementById("nick-save");
-const nickCancel = document.getElementById("nick-cancel");
 
 // ============ Fetch from Render ============
 async function fetchMessages() {
@@ -566,6 +487,9 @@ async function apiPost(path, payload) {
 
 // ============ Render ============
 function authorLabelFor(msg) {
+  // Если это системное сообщение, возвращаем null (ник не нужен)
+  if (msg.system) return null;
+  
   const n = nicksMap[msg.ip_hash];
   if (n) return { text: "@" + n };
   return { text: "@" + msg.ip_hash };
@@ -576,6 +500,17 @@ function buildMessagesHTML(items) {
     .slice()
     .reverse()
     .map(m => {
+      if (m.system) {
+        // Системное сообщение
+        return `
+          <div class="msg system">
+            <span class="when">${escapeHtml(formatLocalFromUTC(m.when || ""))}</span>
+            <span class="text">${escapeHtml(m.text || "")}</span>
+          </div>
+        `;
+      }
+
+      // Обычное сообщение
       const c = colorForHash(m.ip_hash);
       const a = authorLabelFor(m);
       const when = formatLocalFromUTC(m.when || "");
@@ -687,7 +622,6 @@ keypadEl.addEventListener("click", e => {
 });
 
 document.addEventListener("keydown", e => {
-  if (nickModal.classList.contains("visible")) return;
   if (!gateEl.classList.contains("visible")) {
     if (e.key === "Enter" && document.activeElement === msgInput) sendMessage();
     return;
@@ -705,14 +639,86 @@ document.addEventListener("keydown", e => {
 });
 
 // ============ Send ============
+function setStatus(text, cls = "") {
+  inputStatus.textContent = text;
+  inputStatus.className = "status" + (cls ? " " + cls : "");
+}
+
 async function sendMessage() {
-  const text = msgInput.value.trim();
-  if (!text || !sessionCode) return;
+  const rawText = msgInput.value.trim();
+  if (!rawText || !sessionCode) return;
 
+  // === Обработка локальных команд ===
+  if (rawText.startsWith("/")) {
+    const parts = rawText.split(" ");
+    const cmd = parts[0].toLowerCase();
+    const arg = parts.slice(1).join(" ").trim();
+
+    // /help или /commands
+    if (cmd === "/help" || cmd === "/commands") {
+      setStatus("Available commands:\n/nick <name> — change your nick\n/help — show this list", "ok");
+      msgInput.value = "";
+      return;
+    }
+
+    // /nick <name>
+    if (cmd === "/nick" || cmd === "/name") {
+      if (!arg) {
+        setStatus("error: usage /nick <name>", "err");
+        msgInput.value = "";
+        return;
+      }
+
+      setStatus("> changing nick…");
+      const res = await apiPost("/nick", { code: sessionCode, nick: arg });
+
+      if (!res.ok) {
+        const reasons = {
+          short: "nick must be 2–20 characters",
+          long: "nick must be 2–20 characters",
+          space: "no spaces allowed",
+          chars: "only letters, digits, _ and -",
+          reserved: "this nick is reserved",
+          taken: "this nick is already taken, try another",
+          cooldown: `wait ${res.wait || 0}s before changing again`,
+          github: "storage error",
+          code: "code expired, reload page",
+          http: "server error"
+        };
+        setStatus("error: " + (reasons[res.reason] || res.reason), "err");
+        return;
+      }
+
+      // Успешно сменили ник
+      const oldNickLabel = myNick ? "@" + myNick : "@" + myHash;
+      myNick = res.nick;
+      
+      setStatus(`> success: your nick is now @${res.nick}`, "ok");
+      msgInput.value = "";
+
+      // Обновляем данные с сервера (там уже есть системное сообщение)
+      try {
+        nicksMap = await fetchNicks();
+        allItems = await fetchMessages();
+        renderMessages(allItems);
+        metaEl.innerHTML = PROMPT_HTML + "total messages: " + allItems.length;
+      } catch (e) { /* ignore */ }
+
+      setTimeout(() => { setStatus(""); }, 4000);
+      return;
+    }
+
+    // Неизвестная команда
+    setStatus("error: unknown command. type /help", "err");
+    msgInput.value = "";
+    return;
+  }
+
+  // === Обычное сообщение ===
   sendBtn.disabled = true;
-  inputStatus.textContent = "> sending…";
+  setStatus("> sending…");
 
-  const res = await apiPost("/post", { code: sessionCode, text });
+  const res = await apiPost("/post", { code: sessionCode, text: rawText });
 
   sendBtn.disabled = false;
 
@@ -723,14 +729,14 @@ async function sendMessage() {
       github: "storage error",
       http: "server error"
     };
-    inputStatus.textContent = "> error: " + (reasons[res.reason] || res.reason);
+    setStatus("> error: " + (reasons[res.reason] || res.reason), "err");
     return;
   }
 
   msgInput.value = "";
-  inputStatus.textContent = "> sent";
+  setStatus("> sent", "ok");
 
-  // Мгновенно обновляем из Render — там уже свежие данные
+  // Мгновенно обновляем из Render
   try {
     allItems = await fetchMessages();
     nicksMap = await fetchNicks();
@@ -738,70 +744,10 @@ async function sendMessage() {
     metaEl.innerHTML = PROMPT_HTML + "total messages: " + allItems.length;
   } catch (e) { /* ignore */ }
 
-  setTimeout(() => { inputStatus.textContent = ""; }, 2000);
+  setTimeout(() => { setStatus(""); }, 2000);
 }
 
 sendBtn.addEventListener("click", sendMessage);
-
-// ============ Nick ============
-nickBtn.addEventListener("click", () => {
-  nickInput.value = "";
-  nickMsg.textContent = "";
-  nickMsg.className = "msg";
-  nickModal.classList.add("visible");
-  setTimeout(() => nickInput.focus(), 50);
-});
-
-nickCancel.addEventListener("click", () => {
-  nickModal.classList.remove("visible");
-});
-
-nickInput.addEventListener("keydown", e => {
-  if (e.key === "Enter") saveNick();
-  if (e.key === "Escape") nickModal.classList.remove("visible");
-});
-
-async function saveNick() {
-  const nick = nickInput.value.trim();
-  if (!nick) return;
-
-  nickMsg.textContent = "> checking…";
-  nickMsg.className = "msg";
-
-  const res = await apiPost("/nick", { code: sessionCode, nick });
-
-  if (!res.ok) {
-    const reasons = {
-      short: "nick must be 2–20 characters",
-      long: "nick must be 2–20 characters",
-      space: "no spaces allowed",
-      chars: "only letters, digits, _ and -",
-      reserved: "this nick is reserved",
-      taken: "this nick is already taken, try another",
-      cooldown: `wait ${res.wait || 0}s before changing again`,
-      github: "storage error",
-      code: "code expired, reload page",
-      http: "server error"
-    };
-    nickMsg.textContent = "> " + (reasons[res.reason] || res.reason);
-    nickMsg.className = "msg err";
-    return;
-  }
-
-  myNick = res.nick;
-  nickMsg.textContent = `> user ${myHash} changed nick to ${res.nick}`;
-  nickMsg.className = "msg ok";
-
-  try {
-    nicksMap = await fetchNicks();
-    allItems = await fetchMessages();
-    renderMessages(allItems);
-  } catch (e) { /* ignore */ }
-
-  setTimeout(() => nickModal.classList.remove("visible"), 1200);
-}
-
-nickSave.addEventListener("click", saveNick);
 
 // ============ Periodic refresh ============
 async function refresh() {
