@@ -264,15 +264,19 @@
     background: #0a0a0a;
     border-top: 1px dashed #333333;
     z-index: 10;
-    position: relative; /* Для выпадающего списка */
+    position: relative;
+    /* Flex column для управления порядком (меню снизу) */
+    flex-direction: column;
   }
-  #input-area.visible { display: block; }
+  #input-area.visible { display: flex; }
 
-  #input-area .row {
+  /* Поле ввода всегда первое (визуально сверху) */
+  #input-area .input-row {
     display: flex;
     align-items: center;
     gap: 10px;
     flex-wrap: wrap;
+    order: 1; /* Строка ввода */
   }
 
   #input-area .input-prompt {
@@ -316,6 +320,7 @@
   }
 
   #input-area .status {
+    order: 3; /* Статус в самом низу */
     color: #666666;
     font-size: 12px;
     margin-top: 10px;
@@ -326,37 +331,39 @@
   #input-area .status.ok  { color: #51cf66; }
   #input-area .status.err { color: #ff6b6b; }
 
-  /* Выпадающий список ников */
-  #mentions-menu {
+  /* Выпадающее меню (снизу) */
+  #dropdown-menu {
     display: none;
-    position: absolute;
-    bottom: 100%; /* Над полем ввода */
-    left: 16px;
-    right: 16px;
+    order: 2; /* Между строкой ввода и статусом */
+    margin-top: 10px;
     max-height: 200px;
     overflow-y: auto;
     background: #141414;
     border: 1px solid #333333;
     border-radius: 4px;
-    margin-bottom: 8px;
-    z-index: 20;
-    box-shadow: 0 -4px 12px rgba(0,0,0,0.5);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.5);
   }
-  #mentions-menu.visible { display: block; }
+  #dropdown-menu.visible { display: block; }
   
-  .mention-item {
+  .dropdown-item {
     padding: 10px 14px;
     cursor: pointer;
     color: #d0d0d0;
     font-size: 14px;
     border-bottom: 1px solid #222222;
+    display: flex;
+    justify-content: space-between;
   }
-  .mention-item:last-child { border-bottom: none; }
-  .mention-item:hover {
+  .dropdown-item:last-child { border-bottom: none; }
+  .dropdown-item:hover {
     background: rgba(255,255,255,0.05);
   }
-  .mention-item .nick-color {
+  .dropdown-item .nick-color {
     font-weight: bold;
+  }
+  .dropdown-item .cmd-desc {
+    color: #666666;
+    font-size: 12px;
   }
 
   #messages::-webkit-scrollbar { width: 6px; }
@@ -385,9 +392,8 @@
     h1 { font-size: 22px; }
     #messages { padding: 12px 16px; }
     #input-area { padding: 10px 16px 12px; }
-    #input-area .row { gap: 8px; }
+    #input-area .input-row { gap: 8px; }
     #input-area button { padding: 6px 10px; }
-    #mentions-menu { left: 16px; right: 16px; }
   }
 </style>
 </head>
@@ -429,14 +435,15 @@
     <div id="messages"></div>
 
     <div id="input-area">
-      <!-- Выпадающий список ников -->
-      <div id="mentions-menu"></div>
-      
-      <div class="row">
+      <div class="input-row">
         <span class="input-prompt">&gt;</span>
-        <input id="msg-input" type="text" maxlength="500" placeholder="type a message or @nick…" autocomplete="off" />
+        <input id="msg-input" type="text" maxlength="500" placeholder="type a message, @nick or /command…" autocomplete="off" />
         <button id="send-btn">SEND</button>
       </div>
+      
+      <!-- Выпадающий список -->
+      <div id="dropdown-menu"></div>
+      
       <div class="status" id="input-status"></div>
     </div>
   </div>
@@ -445,11 +452,10 @@
   <div id="status"></div>
 
 <script>
-// ==== Обработка высоты экрана при появлении клавиатуры ====
+// ==== Высота экрана ====
 function adjustHeight() {
   const app = document.getElementById('app-container');
   if (!app) return;
-  
   if (window.visualViewport) {
     app.style.height = window.visualViewport.height + 'px';
     if (document.activeElement === document.getElementById('msg-input')) {
@@ -462,7 +468,6 @@ function adjustHeight() {
     app.style.height = window.innerHeight + 'px';
   }
 }
-
 if (window.visualViewport) {
   window.visualViewport.addEventListener('resize', adjustHeight);
   window.visualViewport.addEventListener('scroll', adjustHeight);
@@ -478,18 +483,9 @@ const REFRESH_MS = 5000;
 const SLOGAN_TEXT = "write it — and it stays";
 
 const PALETTE = [
-  { accent: "#ff6b6b" },
-  { accent: "#ffa94d" },
-  { accent: "#ffd43b" },
-  { accent: "#a9e34b" },
-  { accent: "#51cf66" },
-  { accent: "#38d9a9" },
-  { accent: "#4dabf7" },
-  { accent: "#748ffc" },
-  { accent: "#b197fc" },
-  { accent: "#da77f2" },
-  { accent: "#f783ac" },
-  { accent: "#ced4da" },
+  { accent: "#ff6b6b" }, { accent: "#ffa94d" }, { accent: "#ffd43b" }, { accent: "#a9e34b" },
+  { accent: "#51cf66" }, { accent: "#38d9a9" }, { accent: "#4dabf7" }, { accent: "#748ffc" },
+  { accent: "#b197fc" }, { accent: "#da77f2" }, { accent: "#f783ac" }, { accent: "#ced4da" },
 ];
 
 function hashIndex(str, mod) {
@@ -523,10 +519,8 @@ function nowLocalString() {
          `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
-// ============ Typing ============
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const rand = (a, b) => Math.random() * (b - a) + a;
-
 const PROMPT_HTML = '<span class="prompt">&gt;</span> ';
 const CURSOR_HTML = '<span class="cursor"></span>';
 
@@ -576,7 +570,7 @@ const inputArea = document.getElementById("input-area");
 const msgInput  = document.getElementById("msg-input");
 const sendBtn   = document.getElementById("send-btn");
 const inputStatus = document.getElementById("input-status");
-const mentionsMenu = document.getElementById("mentions-menu");
+const dropdownMenu = document.getElementById("dropdown-menu");
 
 // ============ Fetch ============
 async function fetchMessages() {
@@ -593,7 +587,6 @@ async function fetchNicks() {
   return data.nicks || {};
 }
 
-// ============ API POST ============
 async function apiPost(path, payload) {
   const res = await fetch(API + path, {
     method: "POST",
@@ -608,9 +601,7 @@ async function apiPost(path, payload) {
 // ============ Render ============
 function authorLabelFor(msg) {
   if (msg.system) return null;
-  
   if (msg.nick) return { text: "@" + msg.nick };
-  
   const n = nicksMap[msg.ip_hash];
   if (n) return { text: "@" + n };
   return { text: "@" + msg.ip_hash };
@@ -643,10 +634,8 @@ function renderMessages(items) {
       const a = authorLabelFor(m);
       const when = formatLocalFromUTC(m.when || "");
       
-      // Формируем HTML для ответа (если есть reply_to)
       let replyHtml = "";
       if (m.reply_to) {
-        // Ищем хэш получателя по его нику, чтобы взять цвет
         let targetHash = m.reply_to;
         for (const [hash, nick] of Object.entries(nicksMap)) {
           if (nick === m.reply_to) {
@@ -655,7 +644,6 @@ function renderMessages(items) {
           }
         }
         const targetColor = colorForHash(targetHash).accent;
-        
         replyHtml = `
           <span class="reply-arrow">→</span>
           <span class="reply-target" style="color: ${targetColor};">@${escapeHtml(m.reply_to)}</span>
@@ -677,78 +665,111 @@ function renderMessages(items) {
   scrollToBottom();
 }
 
-// ============ Обработка @ в поле ввода ============
+// ============ Dropdown (Упоминания и Команды) ============
+const COMMANDS = [
+  { cmd: "nick", desc: "change your nick (e.g. /nick Vasya)" },
+  { cmd: "help", desc: "show available commands" }
+];
+
 msgInput.addEventListener("input", () => {
   const val = msgInput.value;
   const cursorPos = msgInput.selectionStart;
-  
-  // Ищем последний символ @ перед курсором
   const textBeforeCursor = val.slice(0, cursorPos);
+  
   const lastAt = textBeforeCursor.lastIndexOf("@");
-  
-  if (lastAt === -1) {
-    mentionsMenu.classList.remove("visible");
+  const lastSlash = textBeforeCursor.lastIndexOf("/");
+
+  // Приоритет: если слэш ближе к курсору, чем @, и перед ним пробел/начало строки
+  if (lastSlash !== -1 && lastSlash > lastAt && (lastSlash === 0 || textBeforeCursor[lastSlash - 1] === " ")) {
+    const query = textBeforeCursor.slice(lastSlash + 1);
+    if (query.includes(" ")) {
+      dropdownMenu.classList.remove("visible");
+      return;
+    }
+    
+    // Фильтруем команды
+    const filtered = COMMANDS.filter(c => c.cmd.startsWith(query.toLowerCase()));
+    if (filtered.length === 0) {
+      dropdownMenu.classList.remove("visible");
+      return;
+    }
+
+    dropdownMenu.innerHTML = filtered.map(c => `
+      <div class="dropdown-item" data-type="cmd" data-val="${c.cmd}">
+        <span>/${c.cmd}</span>
+        <span class="cmd-desc">${c.desc}</span>
+      </div>
+    `).join("");
+
+    dropdownMenu.classList.add("visible");
     return;
   }
-  
-  // Проверяем, что после @ нет пробелов (иначе это уже не ввод ника)
-  const query = textBeforeCursor.slice(lastAt + 1);
-  if (query.includes(" ")) {
-    mentionsMenu.classList.remove("visible");
+
+  // Обработка @
+  if (lastAt !== -1 && lastAt > lastSlash) {
+    const query = textBeforeCursor.slice(lastAt + 1);
+    if (query.includes(" ")) {
+      dropdownMenu.classList.remove("visible");
+      return;
+    }
+
+    const allNicks = [];
+    for (const [hash, nick] of Object.entries(nicksMap)) {
+      allNicks.push({ hash, nick });
+    }
+
+    const filtered = allNicks.filter(item => 
+      item.nick.toLowerCase().includes(query.toLowerCase())
+    );
+
+    if (filtered.length === 0) {
+      dropdownMenu.classList.remove("visible");
+      return;
+    }
+
+    dropdownMenu.innerHTML = filtered.map(item => {
+      const c = colorForHash(item.hash);
+      return `<div class="dropdown-item" data-type="nick" data-val="${escapeHtml(item.nick)}">
+        <span class="nick-color" style="color: ${c.accent}">@${escapeHtml(item.nick)}</span>
+      </div>`;
+    }).join("");
+
+    dropdownMenu.classList.add("visible");
     return;
   }
 
-  // Ищем всех пользователей с таким ником (или хэшем)
-  const allNicks = [];
-  for (const [hash, nick] of Object.entries(nicksMap)) {
-    allNicks.push({ hash, nick });
-  }
-
-  // Фильтруем по запросу
-  const filtered = allNicks.filter(item => 
-    item.nick.toLowerCase().includes(query.toLowerCase()) ||
-    item.hash.startsWith(query.toLowerCase())
-  );
-
-  if (filtered.length === 0) {
-    mentionsMenu.classList.remove("visible");
-    return;
-  }
-
-  // Отрисовываем список
-  mentionsMenu.innerHTML = filtered.map(item => {
-    const c = colorForHash(item.hash);
-    return `<div class="mention-item" data-nick="${escapeHtml(item.nick)}">
-      <span class="nick-color" style="color: ${c.accent}">@${escapeHtml(item.nick)}</span>
-    </div>`;
-  }).join("");
-
-  mentionsMenu.classList.add("visible");
+  dropdownMenu.classList.remove("visible");
 });
 
-// Клик по нику в выпадающем списке
-mentionsMenu.addEventListener("click", (e) => {
-  const item = e.target.closest(".mention-item");
+// Клик по элементу меню
+dropdownMenu.addEventListener("click", (e) => {
+  const item = e.target.closest(".dropdown-item");
   if (!item) return;
   
-  const selectedNick = item.dataset.nick;
-  const val = msgInput.value;
+  const type = item.dataset.type;
+  const val = item.dataset.val;
+  const valText = msgInput.value;
   const cursorPos = msgInput.selectionStart;
-  const textBeforeCursor = val.slice(0, cursorPos);
-  const lastAt = textBeforeCursor.lastIndexOf("@");
+  const textBeforeCursor = valText.slice(0, cursorPos);
   
-  // Заменяем @query на @ник 
-  const newValue = val.slice(0, lastAt) + "@" + selectedNick + " " + val.slice(cursorPos);
+  let newValue = "";
+  
+  if (type === "nick") {
+    const lastAt = textBeforeCursor.lastIndexOf("@");
+    newValue = valText.slice(0, lastAt) + "@" + val + " " + valText.slice(cursorPos);
+  } else if (type === "cmd") {
+    const lastSlash = textBeforeCursor.lastIndexOf("/");
+    newValue = valText.slice(0, lastSlash) + "/" + val + " " + valText.slice(cursorPos);
+  }
+  
   msgInput.value = newValue;
-  
-  mentionsMenu.classList.remove("visible");
+  dropdownMenu.classList.remove("visible");
   msgInput.focus();
 });
 
-// Скрываем меню при клике вне его
 document.addEventListener("click", (e) => {
-  if (!mentionsMenu.contains(e.target) && e.target !== msgInput) {
-    mentionsMenu.classList.remove("visible");
+  if (!dropdownMenu.contains(e.target) && e.target !== msgInput) {
+    dropdownMenu.classList.remove("visible");
   }
 });
 
@@ -868,7 +889,6 @@ async function sendMessage() {
   const rawText = msgInput.value.trim();
   if (!rawText || !sessionCode) return;
 
-  // === Команды ===
   if (rawText.startsWith("/")) {
     const parts = rawText.split(" ");
     const cmd = parts[0].toLowerCase();
@@ -927,8 +947,6 @@ async function sendMessage() {
     return;
   }
 
-  // === Обычное сообщение ===
-  // Проверяем, начинается ли сообщение с @ник
   let replyTo = null;
   let textToSend = rawText;
   
@@ -936,8 +954,6 @@ async function sendMessage() {
   if (match) {
     const targetNick = match[1];
     const remainingText = match[2];
-    
-    // Проверяем, существует ли такой ник
     const knownNicks = Object.values(nicksMap);
     if (knownNicks.includes(targetNick)) {
       replyTo = targetNick;
