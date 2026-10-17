@@ -127,30 +127,13 @@ const sendBtn   = document.getElementById("send-btn");
 const dropdownMenu = document.getElementById("dropdown-menu");
 const hiddenInput = document.getElementById("hidden-input");
 
-// Фокусируемся на скрытом инпуте при клике на область ввода кода
-if (gateEl) {
-  gateEl.addEventListener("click", (e) => {
-    if (e.target.tagName !== 'BUTTON' && hiddenInput) {
-      hiddenInput.focus();
-    }
-  });
+// Автофокус на скрытое поле для перехвата вставки
+if (hiddenInput) {
+  setTimeout(() => hiddenInput.focus(), 100);
 }
 
 // Перехватываем вставку из буфера обмена
 if (hiddenInput) {
-  hiddenInput.addEventListener("paste", (e) => {
-    e.preventDefault();
-    const pasted = (e.clipboardData || window.clipboardData).getData("text");
-    if (pasted) {
-      codeValue = pasted.trim();
-      updateDigitsUI();
-      if (codeValue.length > 4 || /[a-zA-Z]/.test(codeValue)) {
-        submitCode();
-      }
-    }
-  });
-
-  // Перехватываем ввод с физической клавиатуры
   hiddenInput.addEventListener("input", (e) => {
     codeValue = e.target.value;
     if (codeValue.length > 30) codeValue = codeValue.slice(0, 30);
