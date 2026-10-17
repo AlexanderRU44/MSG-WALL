@@ -301,9 +301,14 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json({"ok": False, "reason": "empty"})
             if len(text) > 500:
                 text = text[:500]
+            
+            # Фиксируем текущий ник в самом сообщении
+            current_nick = _cache["nicks"].get(h, "")
+            
             record = {
                 "when": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
                 "ip_hash": h,
+                "nick": current_nick,  # <--- Новое поле
                 "text": text,
             }
             try:
@@ -345,7 +350,7 @@ class Handler(BaseHTTPRequestHandler):
                 print(f"[nick] error: {e}")
                 return self._send_json({"ok": False, "reason": "github"})
 
-            # === Создаём системное сообщение для всех ===
+            # === Создаём системное сообщение ===
             system_msg = f"user {old_label} changed nick to @{nick}"
             sys_record = {
                 "when": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
