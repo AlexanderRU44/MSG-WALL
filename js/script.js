@@ -103,7 +103,6 @@ async function typeCentered(el, text, charMin, charMax) {
 
 // ============ State ============
 let codeValue = "";
-let isAdminMode = false;
 let unlocked = false;
 let sessionCode = null;
 let myHash = null;
@@ -125,27 +124,6 @@ const inputArea = document.getElementById("input-area");
 const msgInput  = document.getElementById("msg-input");
 const sendBtn   = document.getElementById("send-btn");
 const dropdownMenu = document.getElementById("dropdown-menu");
-const hiddenInput = document.getElementById("hidden-input");
-
-// Автофокус на скрытое поле для перехвата вставки
-if (hiddenInput) {
-  setTimeout(() => hiddenInput.focus(), 100);
-}
-
-// Перехватываем вставку из буфера обмена
-if (hiddenInput) {
-  hiddenInput.addEventListener("input", (e) => {
-    codeValue = e.target.value;
-    if (codeValue.length > 30) codeValue = codeValue.slice(0, 30);
-    updateDigitsUI();
-    
-    if (codeValue.length > 4 || /[a-zA-Z]/.test(codeValue)) {
-      if (codeValue.length >= 6) setTimeout(submitCode, 500);
-    } else if (codeValue.length === 4) {
-      setTimeout(submitCode, 200);
-    }
-  });
-}
 
 // ============ Fetch ============
 async function fetchMessages() {
@@ -197,17 +175,7 @@ function renderSystemText(text) {
   });
 }
 
-function buildMessageHTML(m, index) {
-  let adminControls = "";
-  if (isAdminMode && !m.system) {
-    adminControls = `
-      <span class="admin-controls" style="margin-left: auto; display: flex; gap: 8px;">
-        <button onclick="deleteMessage(${index})" style="background:none;border:none;color:#ff6b6b;cursor:pointer;font-size:12px;">[DEL]</button>
-        <button onclick="banUser('${m.ip_hash}')" style="background:none;border:none;color:#ffa94d;cursor:pointer;font-size:12px;">[BAN]</button>
-      </span>
-    `;
-  }
-
+function buildMessageHTML(m) {
   if (m.system) {
     return `
       <div class="msg system">
@@ -240,7 +208,6 @@ function buildMessageHTML(m, index) {
       <span class="who">${escapeHtml(a.text)}</span>
       ${replyHtml}
       <span class="text">${escapeHtml(m.text || "")}</span>
-      ${adminControls}
     </div>
   `;
 }
@@ -318,7 +285,7 @@ async function renderMessages(items) {
   }
   if (isPrinting) return;
   
-  messagesEl.innerHTML = items.map((m, i) => buildMessageHTML(m, i)).join("");
+  messagesEl.innerHTML = items.map(m => buildMessageHTML(m)).join("");
   renderedCount = items.length;
   scrollToBottom();
 }
@@ -351,47 +318,9 @@ async function printLocalStatus(textLines) {
   div.remove();
 }
 
-// ==== АДМИНСКИЕ ДЕЙСТВИЯ ====
-window.deleteMessage = async function(index) {
-  if (!isAdminMode) return;
-  if (!confirm("Удалить это сообщение?")) return;
-  
-  const res = await apiPost("/admin/delete", { code: sessionCode, index: index });
-  if (res.ok) {
-    try {
-      allItems = await fetchMessages();
-      renderMessages(allItems);
-      metaEl.innerHTML = PROMPT_HTML + "total messages: " + allItems.length;
-    } catch (e) { /* ignore */ }
-  } else {
-    alert("Ошибка удаления: " + res.reason);
-  }
-};
-
-window.banUser = async function(hash) {
-  if (!isAdminMode) return;
-  if (!confirm(`Забанить пользователя @${hash}?`)) return;
-  
-  const res = await apiPost("/admin/ban", { code: sessionCode, hash: hash });
-  if (res.ok) {
-    alert(`Пользователь @${hash} забанен.`);
-  } else {
-    alert("Ошибка бана: " + res.reason);
-  }
-};
-
 // ============ Code gate ============
 function updateDigitsUI() {
   const cells = digitsEl.querySelectorAll(".digit");
-  
-  if (codeValue.length > 4 || /[a-zA-Z]/.test(codeValue)) {
-    cells.forEach(cell => {
-      cell.textContent = "*";
-      cell.classList.remove("active");
-    });
-    return;
-  }
-
   cells.forEach((cell, i) => {
     if (i < codeValue.length) {
       cell.textContent = codeValue[i];
@@ -418,25 +347,22 @@ async function submitCode() {
     }
     
     codeValue = "";
-    if (hiddenInput) hiddenInput.value = "";
     updateDigitsUI();
     return;
   }
 
   unlocked = true;
-  isAdminMode = res.is_admin || false;
   sessionCode = code;
   myHash = res.hash;
   myNick = res.nick;
 
   codeValue = "";
-  if (hiddenInput) hiddenInput.value = "";
   updateDigitsUI();
   gateEl.classList.remove("visible");
 
   loadingEl.textContent = "";
   loadingEl.classList.remove("hidden");
-  await typeCentered(loadingEl, isAdminMode ? "admin mode activated…" : "loading…", 40, 90);
+  await typeCentered(loadingEl, "loading…", 40, 90);
   await sleep(400);
   loadingEl.classList.add("hidden");
 
@@ -459,20 +385,17 @@ if (keypadEl) {
 
     if (key === "clear") { 
       codeValue = ""; 
-      if (hiddenInput) hiddenInput.value = "";
       updateDigitsUI(); 
       return; 
     }
     if (key === "back")  { 
       codeValue = codeValue.slice(0, -1); 
-      if (hiddenInput) hiddenInput.value = codeValue;
       updateDigitsUI(); 
       return; 
     }
 
-    if (codeValue.length >= 4 && !/[a-zA-Z]/.test(codeValue)) return;
+    if (codeValue.length >= 4) return;
     codeValue += key;
-    if (hiddenInput) hiddenInput.value = codeValue;
     updateDigitsUI();
     if (codeValue.length === 4) setTimeout(submitCode, 200);
   });
@@ -638,7 +561,7 @@ async function refresh() {
   }
 }
 
-// ============ Bootstrap (Инициализация) ============
+// ============ Bootstrap ============
 let bootstrapped = false;
 async function bootstrap() {
   if (bootstrapped) return;
