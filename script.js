@@ -111,7 +111,6 @@ let nicksMap = {};
 let renderedCount = -1;
 let allItems = [];
 let isPrinting = false;
-let currentOnline = 0;
 
 // ============ DOM ============
 const sloganEl  = document.getElementById("slogan");
@@ -126,24 +125,11 @@ const msgInput  = document.getElementById("msg-input");
 const sendBtn   = document.getElementById("send-btn");
 const dropdownMenu = document.getElementById("dropdown-menu");
 
-function updateOnlineDisplay() {
-  const el = document.getElementById("online-count");
-  if (el) {
-    el.textContent = `> online: ${currentOnline}`;
-  }
-}
-
 // ============ Fetch ============
 async function fetchMessages() {
   const res = await fetch(API + "/messages?t=" + Date.now(), { cache: "no-store" });
   if (!res.ok) throw new Error("messages HTTP " + res.status);
   const data = await res.json();
-  
-  if (data.online !== undefined) {
-    currentOnline = data.online;
-    updateOnlineDisplay();
-  }
-  
   return data.messages || [];
 }
 
@@ -330,7 +316,8 @@ async function printLocalStatus(textLines) {
 // ============ Dropdown ============
 const COMMANDS = [
   { cmd: "nick", desc: "change your nick (e.g. /nick Vasya)" },
-  { cmd: "help", desc: "show available commands" }
+  { cmd: "help", desc: "show available commands" },
+  { cmd: "online", desc: "show how many users are online" }
 ];
 
 msgInput.addEventListener("input", () => {
@@ -536,7 +523,25 @@ async function sendMessage() {
 
     if (cmd === "/help" || cmd === "/commands") {
       msgInput.value = "";
-      printLocalStatus(["Available commands:", "/nick <name> — change your nick", "/help — show this list"]);
+      printLocalStatus(["Available commands:", "/nick <name> — change your nick", "/help — show this list", "/online — show online users"]);
+      return;
+    }
+
+    if (cmd === "/online") {
+      msgInput.value = "";
+      printLocalStatus(["> checking online users…"]);
+      
+      try {
+        const res = await fetch(API + "/online");
+        const data = await res.json();
+        if (data.ok) {
+          printLocalStatus([`> online users: ${data.online}`]);
+        } else {
+          printLocalStatus(["error: failed to get online count"]);
+        }
+      } catch (e) {
+        printLocalStatus(["error: " + e.message]);
+      }
       return;
     }
 
