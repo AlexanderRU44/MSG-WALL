@@ -29,7 +29,7 @@ GITHUB_TOKEN    = os.environ["GITHUB_TOKEN"]
 REPO_NAME       = os.environ["REPO_NAME"]
 SECRET_SALT     = os.environ.get("SECRET_SALT", "change-me-please")
 ENCRYPTION_KEY  = os.environ["ENCRYPTION_KEY"]
-ADMIN_CODE      = os.environ.get("ADMIN_CODE", "admin123") # <-- Код админа
+ADMIN_CODE      = os.environ.get("ADMIN_CODE", "admin123")
 
 # --- Fernet ---
 fernet = Fernet(ENCRYPTION_KEY.encode())
@@ -152,13 +152,11 @@ def append_to_file(path: str, encrypted_line: str):
             time.sleep(0.5 + attempt)
 
 def rewrite_messages_file():
-    """Перезаписывает весь файл сообщений (для удаления)."""
     content = "\n".join([pack_record(m) for m in _cache["messages"]]) + "\n"
     _, sha = get_contents(MESSAGES_PATH)
     write_contents(MESSAGES_PATH, content, sha, "admin delete message")
 
 def rewrite_bans_file():
-    """Перезаписывает весь файл банов."""
     content = "\n".join([json.dumps({"hash": h, "banned": b}) for h, b in _cache["bans"].items()]) + "\n"
     _, sha = get_contents(BANS_PATH)
     write_contents(BANS_PATH, content, sha, "admin ban update")
@@ -331,7 +329,6 @@ class Handler(BaseHTTPRequestHandler):
         data = self._read_json()
         code = str(data.get("code", "")).strip()
 
-        # 1. Проверяем, не админ ли это
         is_admin = (code == ADMIN_CODE)
         if not is_admin and code != daily_code():
             return self._send_json({"ok": False, "reason": "code"})
@@ -351,7 +348,8 @@ class Handler(BaseHTTPRequestHandler):
                 "ok": True,
                 "hash": h,
                 "nick": _cache["nicks"].get(h),
-                "is_admin": is_admin # <-- Сообщаем сайту, что вошел админ
+                "is_admin": is_admin,
+                "bans": _cache["bans"]  # <-- Отдаем список банов на сайт
             })
 
         if self.path == "/post":
