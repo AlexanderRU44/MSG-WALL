@@ -426,11 +426,7 @@
   <div id="status"></div>
 
 <script>
-// ============ Data source: ветка data через raw.githubusercontent ============
-const RAW = "https://raw.githubusercontent.com/AlexanderRU44/MSG-WALL/data";
-const FILE = RAW + "/messages.jsonl";
-const NICKS_FILE = RAW + "/nicks.jsonl";
-
+// ============ Data source: Render, не GitHub ============
 const API = "https://msg-wall.onrender.com";
 const REFRESH_MS = 5000;
 const SLOGAN_TEXT = "write it — and it stays";
@@ -541,42 +537,22 @@ const nickMsg   = document.getElementById("nick-msg");
 const nickSave  = document.getElementById("nick-save");
 const nickCancel = document.getElementById("nick-cancel");
 
-// ============ Fetch ============
-async function fetchText(path) {
-  const res = await fetch(path + "?t=" + Date.now(), { cache: "no-store" });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.text();
+// ============ Fetch from Render ============
+async function fetchMessages() {
+  const res = await fetch(API + "/messages?t=" + Date.now(), { cache: "no-store" });
+  if (!res.ok) throw new Error("messages HTTP " + res.status);
+  const data = await res.json();
+  return data.messages || [];
 }
 
-async function loadMessages() {
-  const text = await fetchText(FILE);
-  const items = [];
-  for (const line of text.split("\n")) {
-    const t = line.trim();
-    if (!t) continue;
-    try { items.push(JSON.parse(t)); }
-    catch { /* ignore */ }
-  }
-  return items;
+async function fetchNicks() {
+  const res = await fetch(API + "/nicks?t=" + Date.now(), { cache: "no-store" });
+  if (!res.ok) throw new Error("nicks HTTP " + res.status);
+  const data = await res.json();
+  return data.nicks || {};
 }
 
-async function loadNicks() {
-  const map = {};
-  try {
-    const text = await fetchText(NICKS_FILE);
-    for (const line of text.split("\n")) {
-      const t = line.trim();
-      if (!t) continue;
-      try {
-        const rec = JSON.parse(t);
-        if (rec.hash && rec.nick) map[rec.hash] = rec.nick;
-      } catch { /* ignore */ }
-    }
-  } catch { /* file might not exist */ }
-  return map;
-}
-
-// ============ API ============
+// ============ API POST ============
 async function apiPost(path, payload) {
   const res = await fetch(API + path, {
     method: "POST",
@@ -633,8 +609,8 @@ async function bootstrap() {
   await sleep(300);
 
   try {
-    allItems = await loadMessages();
-    nicksMap = await loadNicks();
+    allItems = await fetchMessages();
+    nicksMap = await fetchNicks();
   } catch (e) {
     allItems = []; nicksMap = {};
   }
@@ -683,13 +659,12 @@ async function submitCode() {
   loadingEl.textContent = "";
   loadingEl.classList.remove("hidden");
   await typeCentered(loadingEl, "loading…", 40, 90);
-  await sleep(500);
+  await sleep(400);
   loadingEl.classList.add("hidden");
 
-  // после разблокировки — свежие данные
   try {
-    allItems = await loadMessages();
-    nicksMap = await loadNicks();
+    allItems = await fetchMessages();
+    nicksMap = await fetchNicks();
   } catch (e) { /* ignore */ }
 
   renderMessages(allItems);
@@ -755,11 +730,10 @@ async function sendMessage() {
   msgInput.value = "";
   inputStatus.textContent = "> sent";
 
-  // ждём немного, чтобы raw обновился, и перечитываем
-  await sleep(1200);
+  // Мгновенно обновляем из Render — там уже свежие данные
   try {
-    allItems = await loadMessages();
-    nicksMap = await loadNicks();
+    allItems = await fetchMessages();
+    nicksMap = await fetchNicks();
     renderMessages(allItems);
     metaEl.innerHTML = PROMPT_HTML + "total messages: " + allItems.length;
   } catch (e) { /* ignore */ }
@@ -818,10 +792,9 @@ async function saveNick() {
   nickMsg.textContent = `> user ${myHash} changed nick to ${res.nick}`;
   nickMsg.className = "msg ok";
 
-  await sleep(1200);
   try {
-    nicksMap = await loadNicks();
-    allItems = await loadMessages();
+    nicksMap = await fetchNicks();
+    allItems = await fetchMessages();
     renderMessages(allItems);
   } catch (e) { /* ignore */ }
 
@@ -834,10 +807,10 @@ nickSave.addEventListener("click", saveNick);
 async function refresh() {
   if (!unlocked) return;
   try {
-    const items = await loadMessages();
+    const items = await fetchMessages();
     if (items.length !== renderedCount) {
       allItems = items;
-      nicksMap = await loadNicks();
+      nicksMap = await fetchNicks();
       renderMessages(allItems);
       metaEl.innerHTML = PROMPT_HTML + "total messages: " + allItems.length;
     }
