@@ -1,4 +1,4 @@
-const CACHE_NAME = "msg-wall-v1.0";
+const CACHE_NAME = "msg-wall-v1";
 const ASSETS = [
   "./",
   "./index.html",
