@@ -29,6 +29,7 @@ GITHUB_TOKEN    = os.environ["GITHUB_TOKEN"]
 REPO_NAME       = os.environ["REPO_NAME"]
 SECRET_SALT     = os.environ.get("SECRET_SALT", "change-me-please")
 ENCRYPTION_KEY  = os.environ["ENCRYPTION_KEY"]
+ADMIN_CODE      = os.environ.get("ADMIN_CODE", "admin123") # <-- Код админа
 
 # --- Fernet ---
 fernet = Fernet(ENCRYPTION_KEY.encode())
@@ -149,6 +150,18 @@ def append_to_file(path: str, encrypted_line: str):
             if attempt == 2:
                 raise
             time.sleep(0.5 + attempt)
+
+def rewrite_messages_file():
+    """Перезаписывает весь файл сообщений (для удаления)."""
+    content = "\n".join([pack_record(m) for m in _cache["messages"]]) + "\n"
+    _, sha = get_contents(MESSAGES_PATH)
+    write_contents(MESSAGES_PATH, content, sha, "admin delete message")
+
+def rewrite_bans_file():
+    """Перезаписывает весь файл банов."""
+    content = "\n".join([json.dumps({"hash": h, "banned": b}) for h, b in _cache["bans"].items()]) + "\n"
+    _, sha = get_contents(BANS_PATH)
+    write_contents(BANS_PATH, content, sha, "admin ban update")
 
 
 # ============ Cache loading ============
@@ -318,10 +331,12 @@ class Handler(BaseHTTPRequestHandler):
         data = self._read_json()
         code = str(data.get("code", "")).strip()
 
-        if code != daily_code():
+        # 1. Проверяем, не админ ли это
+        is_admin = (code == ADMIN_CODE)
+        if not is_admin and code != daily_code():
             return self._send_json({"ok": False, "reason": "code"})
 
-        if _cache["bans"].get(h) is True:
+        if _cache["bans"].get(h) is True and not is_admin:
             return self._send_json({"ok": False, "reason": "banned"})
 
         if self.path == "/verify":
@@ -329,13 +344,14 @@ class Handler(BaseHTTPRequestHandler):
             if not _cache["loaded"]:
                 refresh_cache()
                 
-            if _cache["bans"].get(h) is True:
+            if _cache["bans"].get(h) is True and not is_admin:
                 return self._send_json({"ok": False, "reason": "banned"})
 
             return self._send_json({
                 "ok": True,
                 "hash": h,
                 "nick": _cache["nicks"].get(h),
+                "is_admin": is_admin # <-- Сообщаем сайту, что вошел админ
             })
 
         if self.path == "/post":
@@ -376,7 +392,7 @@ class Handler(BaseHTTPRequestHandler):
 
             now = time.time()
             last = nick_last_change.get(h, 0)
-            if now - last < NICK_COOLDOWN:
+            if now - last < NICK_COOLDOWN and not is_admin:
                 return self._send_json({
                     "ok": False,
                     "reason": "cooldown",
@@ -411,6 +427,37 @@ class Handler(BaseHTTPRequestHandler):
                 print(f"[nick] system message error: {e}")
 
             return self._send_json({"ok": True, "nick": nick, "hash": h})
+
+        # === АДМИНСКИЕ КОМАНДЫ ===
+        if self.path == "/admin/delete":
+            if not is_admin:
+                return self._send_json({"ok": False, "reason": "denied"})
+            
+            index = data.get("index")
+            if index is not None and 0 <= index < len(_cache["messages"]):
+                del _cache["messages"][index]
+                try:
+                    rewrite_messages_file()
+                except Exception as e:
+                    print(f"[admin] delete error: {e}")
+                    return self._send_json({"ok": False, "reason": "github"})
+                return self._send_json({"ok": True})
+            return self._send_json({"ok": False, "reason": "notfound"})
+
+        if self.path == "/admin/ban":
+            if not is_admin:
+                return self._send_json({"ok": False, "reason": "denied"})
+            
+            target_hash = data.get("hash")
+            if target_hash:
+                _cache["bans"][target_hash] = True
+                try:
+                    rewrite_bans_file()
+                except Exception as e:
+                    print(f"[admin] ban error: {e}")
+                    return self._send_json({"ok": False, "reason": "github"})
+                return self._send_json({"ok": True})
+            return self._send_json({"ok": False, "reason": "notfound"})
 
         return self._send_json({"ok": False, "reason": "notfound"}, 404)
 

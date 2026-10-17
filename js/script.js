@@ -102,7 +102,7 @@ async function typeCentered(el, text, charMin, charMax) {
 }
 
 // ============ State ============
-let codeValue = ""; // Теперь тут может быть и длинный текст
+let codeValue = "";
 let isAdminMode = false;
 let unlocked = false;
 let sessionCode = null;
@@ -141,7 +141,6 @@ hiddenInput.addEventListener("paste", (e) => {
   if (pasted) {
     codeValue = pasted.trim();
     updateDigitsUI();
-    // Автоматически проверяем, если это код админа
     if (codeValue.length > 4 || /[a-zA-Z]/.test(codeValue)) {
       submitCode();
     }
@@ -151,13 +150,11 @@ hiddenInput.addEventListener("paste", (e) => {
 // Перехватываем ввод с физической клавиатуры
 hiddenInput.addEventListener("input", (e) => {
   codeValue = e.target.value;
-  // Обрезаем до разумного предела (чтобы не зациклить)
   if (codeValue.length > 30) codeValue = codeValue.slice(0, 30);
   updateDigitsUI();
   
-  // Если это код админа — проверяем сразу
   if (codeValue.length > 4 || /[a-zA-Z]/.test(codeValue)) {
-    if (codeValue.length >= 6) setTimeout(submitCode, 500); // небольшая пауза
+    if (codeValue.length >= 6) setTimeout(submitCode, 500);
   } else if (codeValue.length === 4) {
     setTimeout(submitCode, 200);
   }
@@ -400,7 +397,6 @@ async function banUser(hash) {
 function updateDigitsUI() {
   const cells = digitsEl.querySelectorAll(".digit");
   
-  // Если код админа (длинный), просто заполняем все квадратики звездочками
   if (codeValue.length > 4 || /[a-zA-Z]/.test(codeValue)) {
     cells.forEach(cell => {
       cell.textContent = "*";
@@ -409,7 +405,6 @@ function updateDigitsUI() {
     return;
   }
 
-  // Обычный режим (4 цифры)
   cells.forEach((cell, i) => {
     if (i < codeValue.length) {
       cell.textContent = codeValue[i];
@@ -435,7 +430,6 @@ async function submitCode() {
       return;
     }
     
-    // Неверный код
     codeValue = "";
     hiddenInput.value = "";
     updateDigitsUI();
@@ -443,7 +437,7 @@ async function submitCode() {
   }
 
   unlocked = true;
-  isAdminMode = res.is_admin || false; // Берем статус от сервера
+  isAdminMode = res.is_admin || false;
   sessionCode = code;
   myHash = res.hash;
   myNick = res.nick;
@@ -470,7 +464,6 @@ async function submitCode() {
   setTimeout(adjustHeight, 100);
 }
 
-// Обработка цифровой клавиатуры на экране
 keypadEl.addEventListener("click", e => {
   const btn = e.target.closest("button[data-key]");
   if (!btn) return;
@@ -489,7 +482,7 @@ keypadEl.addEventListener("click", e => {
     return; 
   }
 
-  if (codeValue.length >= 4 && !/[a-zA-Z]/.test(codeValue)) return; // Если уже 4 цифры, дальше не пускаем
+  if (codeValue.length >= 4 && !/[a-zA-Z]/.test(codeValue)) return;
   codeValue += key;
   hiddenInput.value = codeValue;
   updateDigitsUI();
