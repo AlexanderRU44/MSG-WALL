@@ -15,6 +15,7 @@ from telegram.ext import (
     ContextTypes,
 )
 from github import Github, GithubException
+from cryptography.fernet import Fernet, InvalidToken
 
 # --- Event loop guard ---
 try:
@@ -23,10 +24,14 @@ except RuntimeError:
     asyncio.set_event_loop(asyncio.new_event_loop())
 
 # --- Config ---
-TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
-GITHUB_TOKEN   = os.environ["GITHUB_TOKEN"]
-REPO_NAME      = os.environ["REPO_NAME"]
-SECRET_SALT    = os.environ.get("SECRET_SALT", "change-me-please")
+TELEGRAM_TOKEN  = os.environ["TELEGRAM_TOKEN"]
+GITHUB_TOKEN    = os.environ["GITHUB_TOKEN"]
+REPO_NAME       = os.environ["REPO_NAME"]
+SECRET_SALT     = os.environ.get("SECRET_SALT", "change-me-please")
+ENCRYPTION_KEY  = os.environ["ENCRYPTION_KEY"]
+
+# --- Fernet ---
+fernet = Fernet(ENCRYPTION_KEY.encode())
 
 # --- GitHub ---
 g = Github(GITHUB_TOKEN)
@@ -38,10 +43,9 @@ MESSAGES_PATH  = os.environ.get("FILE_PATH", "messages.jsonl")
 NICKS_PATH     = "nicks.jsonl"
 
 # --- In-memory cache ---
-# Сайт читает данные отсюда, а не из GitHub напрямую.
 _cache = {
-    "messages": [],   # список dict
-    "nicks": {},      # hash -> nick
+    "messages": [],
+    "nicks": {},
     "loaded": False,
 }
 
@@ -51,6 +55,38 @@ NICK_COOLDOWN = 600
 
 # --- Reserved nicks ---
 RESERVED = {"admin", "unknown", "anon", "system", "root", "me", "null"}
+
+
+# ============ Crypto helpers ============
+
+def encrypt_str(s: str) -> str:
+    return fernet.encrypt(s.encode("utf-8")).decode("utf-8")
+
+
+def decrypt_str(token: str) -> str | None:
+    try:
+        return fernet.decrypt(token.encode("utf-8")).decode("utf-8")
+    except (InvalidToken, Exception):
+        return None
+
+
+def pack_record(record: dict) -> str:
+    raw = json.dumps(record, ensure_ascii=False)
+    return encrypt_str(raw)
+
+
+def unpack_record(line: str) -> dict | None:
+    """Пытаемся расшифровать. Если не вышло — fallback: старая открытая строка."""
+    decrypted = decrypt_str(line)
+    if decrypted is not None:
+        try:
+            return json.loads(decrypted)
+        except json.JSONDecodeError:
+            return None
+    try:
+        return json.loads(line)
+    except json.JSONDecodeError:
+        return None
 
 
 # ============ Helpers ============
@@ -102,11 +138,11 @@ def write_contents(path: str, content: str, sha: str | None, message: str):
         repo.update_file(path, message, content, sha=sha, branch=DATA_BRANCH)
 
 
-def append_to_file(path: str, line: str):
+def append_to_file(path: str, encrypted_line: str):
     for attempt in range(3):
         try:
             current, sha = get_contents(path)
-            new_content = current + line + "\n"
+            new_content = current + encrypted_line + "\n"
             write_contents(
                 path, new_content, sha,
                 f"append {datetime.utcnow().isoformat()}"
@@ -127,10 +163,9 @@ def load_messages_from_github() -> list:
         line = line.strip()
         if not line:
             continue
-        try:
-            items.append(json.loads(line))
-        except json.JSONDecodeError:
-            continue
+        rec = unpack_record(line)
+        if rec is not None:
+            items.append(rec)
     return items
 
 
@@ -141,12 +176,13 @@ def load_nicks_from_github() -> dict:
         line = line.strip()
         if not line:
             continue
-        try:
-            rec = json.loads(line)
-        except json.JSONDecodeError:
+        rec = unpack_record(line)
+        if not rec:
             continue
-        if rec.get("hash") and rec.get("nick"):
-            result[rec["hash"]] = rec["nick"]
+        h = rec.get("hash")
+        n = rec.get("nick")
+        if h and n:
+            result[h] = n
     return result
 
 
@@ -170,20 +206,20 @@ def set_nick(h: str, nick: str):
         line = line.strip()
         if not line:
             continue
-        try:
-            rec = json.loads(line)
-        except json.JSONDecodeError:
+        rec = unpack_record(line)
+        if not rec:
+            lines.append(line)
             continue
         if rec.get("hash") == h:
             continue
-        lines.append(json.dumps(rec, ensure_ascii=False))
-    lines.append(json.dumps({
+        lines.append(pack_record(rec))
+    lines.append(pack_record({
         "hash": h,
         "nick": nick,
         "since": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
-    }, ensure_ascii=False))
+    }))
     new_content = "\n".join(lines) + "\n"
-    write_contents(NICKS_PATH, new_content, sha, f"nick {h} -> {nick}")
+    write_contents(NICKS_PATH, new_content, sha, "nick update")
 
 
 # ============ HTTP server ============
@@ -216,7 +252,6 @@ class Handler(BaseHTTPRequestHandler):
             return {}
 
     def do_GET(self):
-        # ---- data endpoints (без кода) ----
         if self.path.startswith("/messages"):
             if not _cache["loaded"]:
                 refresh_cache()
@@ -228,11 +263,9 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_json({"ok": True, "nicks": _cache["nicks"]})
 
         if self.path.startswith("/refresh"):
-            # на случай ручного сброса кэша
             refresh_cache()
             return self._send_json({"ok": True})
 
-        # ---- ping ----
         self.send_response(200)
         self.send_header("Content-Type", "text/plain")
         self.end_headers()
@@ -254,7 +287,6 @@ class Handler(BaseHTTPRequestHandler):
         if code != daily_code():
             return self._send_json({"ok": False, "reason": "code"})
 
-        # ---- verify ----
         if self.path == "/verify":
             if not _cache["loaded"]:
                 refresh_cache()
@@ -264,7 +296,6 @@ class Handler(BaseHTTPRequestHandler):
                 "nick": _cache["nicks"].get(h),
             })
 
-        # ---- post message ----
         if self.path == "/post":
             text = str(data.get("text", "")).strip()
             if not text:
@@ -277,15 +308,13 @@ class Handler(BaseHTTPRequestHandler):
                 "text": text,
             }
             try:
-                append_to_file(MESSAGES_PATH, json.dumps(record, ensure_ascii=False))
+                append_to_file(MESSAGES_PATH, pack_record(record))
             except Exception as e:
                 print(f"[post] error: {e}")
                 return self._send_json({"ok": False, "reason": "github"})
-            # обновляем кэш
             _cache["messages"].append(record)
             return self._send_json({"ok": True, "hash": h})
 
-        # ---- change nick ----
         if self.path == "/nick":
             nick_raw = data.get("nick", "")
             ok_valid, result = valid_nick(nick_raw)
@@ -302,7 +331,6 @@ class Handler(BaseHTTPRequestHandler):
                     "wait": int(NICK_COOLDOWN - (now - last))
                 })
 
-            # занято ли?
             for other_hash, existing_nick in _cache["nicks"].items():
                 if existing_nick == nick and other_hash != h:
                     return self._send_json({"ok": False, "reason": "taken"})
@@ -364,7 +392,6 @@ async def cmd_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 def main():
-    # Загружаем данные до первого запроса с сайта
     print("[startup] loading cache from GitHub…")
     refresh_cache()
 
