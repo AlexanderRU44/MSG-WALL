@@ -102,7 +102,8 @@ async function typeCentered(el, text, charMin, charMax) {
 }
 
 // ============ State ============
-let codeValue = "";
+let codeValue = ""; // Теперь тут может быть и длинный текст
+let isAdminMode = false;
 let unlocked = false;
 let sessionCode = null;
 let myHash = null;
@@ -124,6 +125,43 @@ const inputArea = document.getElementById("input-area");
 const msgInput  = document.getElementById("msg-input");
 const sendBtn   = document.getElementById("send-btn");
 const dropdownMenu = document.getElementById("dropdown-menu");
+const hiddenInput = document.getElementById("hidden-input");
+
+// Фокусируемся на скрытом инпуте при клике на область ввода кода
+gateEl.addEventListener("click", (e) => {
+  if (e.target.tagName !== 'BUTTON') {
+    hiddenInput.focus();
+  }
+});
+
+// Перехватываем вставку из буфера обмена
+hiddenInput.addEventListener("paste", (e) => {
+  e.preventDefault();
+  const pasted = (e.clipboardData || window.clipboardData).getData("text");
+  if (pasted) {
+    codeValue = pasted.trim();
+    updateDigitsUI();
+    // Автоматически проверяем, если это код админа
+    if (codeValue.length > 4 || /[a-zA-Z]/.test(codeValue)) {
+      submitCode();
+    }
+  }
+});
+
+// Перехватываем ввод с физической клавиатуры
+hiddenInput.addEventListener("input", (e) => {
+  codeValue = e.target.value;
+  // Обрезаем до разумного предела (чтобы не зациклить)
+  if (codeValue.length > 30) codeValue = codeValue.slice(0, 30);
+  updateDigitsUI();
+  
+  // Если это код админа — проверяем сразу
+  if (codeValue.length > 4 || /[a-zA-Z]/.test(codeValue)) {
+    if (codeValue.length >= 6) setTimeout(submitCode, 500); // небольшая пауза
+  } else if (codeValue.length === 4) {
+    setTimeout(submitCode, 200);
+  }
+});
 
 // ============ Fetch ============
 async function fetchMessages() {
@@ -175,7 +213,17 @@ function renderSystemText(text) {
   });
 }
 
-function buildMessageHTML(m) {
+function buildMessageHTML(m, index) {
+  let adminControls = "";
+  if (isAdminMode && !m.system) {
+    adminControls = `
+      <span class="admin-controls" style="margin-left: auto; display: flex; gap: 8px;">
+        <button onclick="deleteMessage(${index})" style="background:none;border:none;color:#ff6b6b;cursor:pointer;font-size:12px;">[DEL]</button>
+        <button onclick="banUser('${m.ip_hash}')" style="background:none;border:none;color:#ffa94d;cursor:pointer;font-size:12px;">[BAN]</button>
+      </span>
+    `;
+  }
+
   if (m.system) {
     return `
       <div class="msg system">
@@ -203,11 +251,12 @@ function buildMessageHTML(m) {
   }
 
   return `
-    <div class="msg" style="--accent:${c.accent};">
+    <div class="msg" style="--accent:${c.accent}; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px;">
       <span class="when">${escapeHtml(when)}</span>
       <span class="who">${escapeHtml(a.text)}</span>
       ${replyHtml}
       <span class="text">${escapeHtml(m.text || "")}</span>
+      ${adminControls}
     </div>
   `;
 }
@@ -250,6 +299,11 @@ async function animatePrintMessage(m) {
     }
     div.className = "msg";
     div.style.setProperty("--accent", c.accent);
+    div.style.display = "flex";
+    div.style.flexWrap = "wrap";
+    div.style.alignItems = "baseline";
+    div.style.gap = "4px";
+
     div.innerHTML = `
       <span class="when">${escapeHtml(when)}</span>
       <span class="who">${escapeHtml(a.text)}</span>
@@ -280,7 +334,7 @@ async function renderMessages(items) {
   }
   if (isPrinting) return;
   
-  messagesEl.innerHTML = items.map(m => buildMessageHTML(m)).join("");
+  messagesEl.innerHTML = items.map((m, i) => buildMessageHTML(m, i)).join("");
   renderedCount = items.length;
   scrollToBottom();
 }
@@ -313,121 +367,49 @@ async function printLocalStatus(textLines) {
   div.remove();
 }
 
-// ============ Dropdown ============
-const COMMANDS = [
-  { cmd: "nick", desc: "change your nick (e.g. /nick Vasya)" },
-  { cmd: "help", desc: "show available commands" },
-  { cmd: "online", desc: "show how many users are online" }
-];
-
-msgInput.addEventListener("input", () => {
-  const val = msgInput.value;
-  const cursorPos = msgInput.selectionStart;
-  const textBeforeCursor = val.slice(0, cursorPos);
+// ==== АДМИНСКИЕ ДЕЙСТВИЯ ====
+async function deleteMessage(index) {
+  if (!isAdminMode) return;
+  if (!confirm("Удалить это сообщение?")) return;
   
-  const lastAt = textBeforeCursor.lastIndexOf("@");
-  const lastSlash = textBeforeCursor.lastIndexOf("/");
-
-  if (lastSlash !== -1 && lastSlash > lastAt && (lastSlash === 0 || textBeforeCursor[lastSlash - 1] === " ")) {
-    const query = textBeforeCursor.slice(lastSlash + 1);
-    if (query.includes(" ")) { dropdownMenu.classList.remove("visible"); return; }
-    
-    const filtered = COMMANDS.filter(c => c.cmd.startsWith(query.toLowerCase()));
-    if (filtered.length === 0) { dropdownMenu.classList.remove("visible"); return; }
-
-    dropdownMenu.innerHTML = filtered.map(c => `
-      <div class="dropdown-item" data-type="cmd" data-val="${c.cmd}">
-        <span>/${c.cmd}</span>
-        <span class="cmd-desc">${c.desc}</span>
-      </div>
-    `).join("");
-
-    dropdownMenu.classList.add("visible");
-    return;
+  const res = await apiPost("/admin/delete", { code: sessionCode, index: index });
+  if (res.ok) {
+    try {
+      allItems = await fetchMessages();
+      renderMessages(allItems);
+      metaEl.innerHTML = PROMPT_HTML + "total messages: " + allItems.length;
+    } catch (e) { /* ignore */ }
+  } else {
+    alert("Ошибка удаления: " + res.reason);
   }
+}
 
-  if (lastAt !== -1 && lastAt > lastSlash) {
-    const query = textBeforeCursor.slice(lastAt + 1);
-    if (query.includes(" ")) { dropdownMenu.classList.remove("visible"); return; }
-
-    const allNicks = [];
-    for (const [hash, nick] of Object.entries(nicksMap)) {
-      allNicks.push({ hash, nick });
-    }
-
-    const filtered = allNicks.filter(item => item.nick.toLowerCase().includes(query.toLowerCase()));
-    if (filtered.length === 0) { dropdownMenu.classList.remove("visible"); return; }
-
-    dropdownMenu.innerHTML = filtered.map(item => {
-      const c = colorForHash(item.hash);
-      return `<div class="dropdown-item" data-type="nick" data-val="${escapeHtml(item.nick)}">
-        <span class="nick-color" style="color: ${c.accent}">@${escapeHtml(item.nick)}</span>
-      </div>`;
-    }).join("");
-
-    dropdownMenu.classList.add("visible");
-    return;
-  }
-
-  dropdownMenu.classList.remove("visible");
-});
-
-dropdownMenu.addEventListener("click", (e) => {
-  const item = e.target.closest(".dropdown-item");
-  if (!item) return;
+async function banUser(hash) {
+  if (!isAdminMode) return;
+  if (!confirm(`Забанить пользователя @${hash}?`)) return;
   
-  const type = item.dataset.type;
-  const val = item.dataset.val;
-  const valText = msgInput.value;
-  const cursorPos = msgInput.selectionStart;
-  const textBeforeCursor = valText.slice(0, cursorPos);
-  
-  let newValue = "";
-  
-  if (type === "nick") {
-    const lastAt = textBeforeCursor.lastIndexOf("@");
-    newValue = valText.slice(0, lastAt) + "@" + val + " " + valText.slice(cursorPos);
-  } else if (type === "cmd") {
-    const lastSlash = textBeforeCursor.lastIndexOf("/");
-    newValue = valText.slice(0, lastSlash) + "/" + val + " " + valText.slice(cursorPos);
+  const res = await apiPost("/admin/ban", { code: sessionCode, hash: hash });
+  if (res.ok) {
+    alert(`Пользователь @${hash} забанен.`);
+  } else {
+    alert("Ошибка бана: " + res.reason);
   }
-  
-  msgInput.value = newValue;
-  dropdownMenu.classList.remove("visible");
-  msgInput.focus();
-});
-
-document.addEventListener("click", (e) => {
-  if (!dropdownMenu.contains(e.target) && e.target !== msgInput) {
-    dropdownMenu.classList.remove("visible");
-  }
-});
-
-// ============ Bootstrap ============
-let bootstrapped = false;
-async function bootstrap() {
-  if (bootstrapped) return;
-  bootstrapped = true;
-
-  await typeInto(sloganEl, SLOGAN_TEXT, 30, 70);
-  await sleep(300);
-
-  try {
-    allItems = await fetchMessages();
-    nicksMap = await fetchNicks();
-  } catch (e) {
-    allItems = []; nicksMap = {};
-  }
-
-  await typeInto(metaEl, "total messages: " + allItems.length, 25, 50);
-
-  gateEl.classList.add("visible");
-  updateDigitsUI();
 }
 
 // ============ Code gate ============
 function updateDigitsUI() {
   const cells = digitsEl.querySelectorAll(".digit");
+  
+  // Если код админа (длинный), просто заполняем все квадратики звездочками
+  if (codeValue.length > 4 || /[a-zA-Z]/.test(codeValue)) {
+    cells.forEach(cell => {
+      cell.textContent = "*";
+      cell.classList.remove("active");
+    });
+    return;
+  }
+
+  // Обычный режим (4 цифры)
   cells.forEach((cell, i) => {
     if (i < codeValue.length) {
       cell.textContent = codeValue[i];
@@ -447,7 +429,6 @@ async function submitCode() {
 
   if (!res.ok) {
     if (res.reason === "banned") {
-      // Если забанен — показываем сообщение
       gateEl.classList.remove("visible");
       messagesEl.innerHTML = '<div class="tline"><span class="err" style="font-size: 1.2rem; display: block; margin-top: 20px;">&gt; access denied. you are banned.</span></div>';
       inputArea.classList.remove("visible");
@@ -456,22 +437,25 @@ async function submitCode() {
     
     // Неверный код
     codeValue = "";
+    hiddenInput.value = "";
     updateDigitsUI();
     return;
   }
 
   unlocked = true;
+  isAdminMode = res.is_admin || false; // Берем статус от сервера
   sessionCode = code;
   myHash = res.hash;
   myNick = res.nick;
 
   codeValue = "";
+  hiddenInput.value = "";
   updateDigitsUI();
   gateEl.classList.remove("visible");
 
   loadingEl.textContent = "";
   loadingEl.classList.remove("hidden");
-  await typeCentered(loadingEl, "loading…", 40, 90);
+  await typeCentered(loadingEl, isAdminMode ? "admin mode activated…" : "loading…", 40, 90);
   await sleep(400);
   loadingEl.classList.add("hidden");
 
@@ -480,44 +464,36 @@ async function submitCode() {
     nicksMap = await fetchNicks();
   } catch (e) { /* ignore */ }
 
-  messagesEl.innerHTML = allItems.map(m => buildMessageHTML(m)).join("");
-  renderedCount = allItems.length;
-  scrollToBottom();
-  
+  renderMessages(allItems);
   inputArea.classList.add("visible");
   msgInput.focus();
   setTimeout(adjustHeight, 100);
 }
 
+// Обработка цифровой клавиатуры на экране
 keypadEl.addEventListener("click", e => {
   const btn = e.target.closest("button[data-key]");
   if (!btn) return;
   const key = btn.dataset.key;
 
-  if (key === "clear") { codeValue = ""; updateDigitsUI(); return; }
-  if (key === "back")  { codeValue = codeValue.slice(0, -1); updateDigitsUI(); return; }
+  if (key === "clear") { 
+    codeValue = ""; 
+    hiddenInput.value = "";
+    updateDigitsUI(); 
+    return; 
+  }
+  if (key === "back")  { 
+    codeValue = codeValue.slice(0, -1); 
+    hiddenInput.value = codeValue;
+    updateDigitsUI(); 
+    return; 
+  }
 
-  if (codeValue.length >= 4) return;
+  if (codeValue.length >= 4 && !/[a-zA-Z]/.test(codeValue)) return; // Если уже 4 цифры, дальше не пускаем
   codeValue += key;
+  hiddenInput.value = codeValue;
   updateDigitsUI();
   if (codeValue.length === 4) setTimeout(submitCode, 200);
-});
-
-document.addEventListener("keydown", e => {
-  if (!gateEl.classList.contains("visible")) {
-    if (e.key === "Enter" && document.activeElement === msgInput) sendMessage();
-    return;
-  }
-  if (e.key >= "0" && e.key <= "9") {
-    if (codeValue.length < 4) {
-      codeValue += e.key; updateDigitsUI();
-      if (codeValue.length === 4) setTimeout(submitCode, 200);
-    }
-  } else if (e.key === "Backspace") {
-    codeValue = codeValue.slice(0, -1); updateDigitsUI();
-  } else if (e.key === "Escape") {
-    codeValue = ""; updateDigitsUI();
-  }
 });
 
 // ============ Send ============
@@ -589,10 +565,8 @@ async function sendMessage() {
       try {
         nicksMap = await fetchNicks();
         allItems = await fetchMessages();
-        messagesEl.innerHTML = allItems.map(m => buildMessageHTML(m)).join("");
-        renderedCount = allItems.length;
+        renderMessages(allItems);
         metaEl.innerHTML = PROMPT_HTML + "total messages: " + allItems.length;
-        scrollToBottom();
       } catch (e) { /* ignore */ }
       
       return;

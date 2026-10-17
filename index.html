@@ -4,7 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>Msg Wall</title>
-
 <!-- Иконки для вкладки браузера и установки на устройства -->
 <link rel="icon" type="image/png" href="assets/icons/favicon.png">
 <link rel="apple-touch-icon" href="assets/icons/icon-192.png">
@@ -26,7 +25,11 @@
     <div id="loading"></div>
 
     <div id="gate">
-      <div class="hint">enter today's code</div>
+      <div class="hint">enter code or admin key</div>
+      
+      <!-- Скрытое поле ввода для перехвата вставки и клавиатуры -->
+      <input type="text" id="hidden-input" style="position: absolute; opacity: 0; pointer-events: none; top: 0; left: 0; width: 1px; height: 1px;" />
+
       <div class="digits" id="digits">
         <div class="digit active"></div>
         <div class="digit"></div>
@@ -67,7 +70,7 @@
   <!-- Логика сайта -->
   <script src="js/script.js"></script>
   
-  <!-- Регистрация Service Worker для установки приложения -->
+  <!-- Регистрация Service Worker -->
   <script>
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", () => {
