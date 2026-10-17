@@ -62,13 +62,12 @@
   .app-container {
     display: flex;
     flex-direction: column;
-    height: 100dvh; /* fallback */
+    height: 100dvh;
     max-width: 820px;
     margin: 0 auto;
     position: relative;
     z-index: 2;
     animation: flicker 7s infinite;
-    /* JS будет менять height через style, перекрывая 100dvh */
   }
 
   @keyframes flicker {
@@ -238,6 +237,17 @@
     margin-left: 6px;
   }
 
+  /* Стрелка для ответа */
+  .msg .reply-arrow {
+    color: #888888;
+    margin: 0 6px;
+  }
+  .msg .reply-target {
+    font-weight: bold;
+    text-decoration: none;
+    text-shadow: 0 0 6px currentColor;
+  }
+
   .msg.system {
     border-left-color: #555555;
     background: rgba(255,255,255,0.02);
@@ -246,6 +256,7 @@
   }
   .msg.system .text { color: #888888; }
 
+  /* Область ввода */
   #input-area {
     display: none;
     flex-shrink: 0;
@@ -253,6 +264,7 @@
     background: #0a0a0a;
     border-top: 1px dashed #333333;
     z-index: 10;
+    position: relative; /* Для выпадающего списка */
   }
   #input-area.visible { display: block; }
 
@@ -314,6 +326,39 @@
   #input-area .status.ok  { color: #51cf66; }
   #input-area .status.err { color: #ff6b6b; }
 
+  /* Выпадающий список ников */
+  #mentions-menu {
+    display: none;
+    position: absolute;
+    bottom: 100%; /* Над полем ввода */
+    left: 16px;
+    right: 16px;
+    max-height: 200px;
+    overflow-y: auto;
+    background: #141414;
+    border: 1px solid #333333;
+    border-radius: 4px;
+    margin-bottom: 8px;
+    z-index: 20;
+    box-shadow: 0 -4px 12px rgba(0,0,0,0.5);
+  }
+  #mentions-menu.visible { display: block; }
+  
+  .mention-item {
+    padding: 10px 14px;
+    cursor: pointer;
+    color: #d0d0d0;
+    font-size: 14px;
+    border-bottom: 1px solid #222222;
+  }
+  .mention-item:last-child { border-bottom: none; }
+  .mention-item:hover {
+    background: rgba(255,255,255,0.05);
+  }
+  .mention-item .nick-color {
+    font-weight: bold;
+  }
+
   #messages::-webkit-scrollbar { width: 6px; }
   #messages::-webkit-scrollbar-track { background: transparent; }
   #messages::-webkit-scrollbar-thumb { background: #333333; border-radius: 3px; }
@@ -342,6 +387,7 @@
     #input-area { padding: 10px 16px 12px; }
     #input-area .row { gap: 8px; }
     #input-area button { padding: 6px 10px; }
+    #mentions-menu { left: 16px; right: 16px; }
   }
 </style>
 </head>
@@ -383,9 +429,12 @@
     <div id="messages"></div>
 
     <div id="input-area">
+      <!-- Выпадающий список ников -->
+      <div id="mentions-menu"></div>
+      
       <div class="row">
         <span class="input-prompt">&gt;</span>
-        <input id="msg-input" type="text" maxlength="500" placeholder="type a message…" autocomplete="off" />
+        <input id="msg-input" type="text" maxlength="500" placeholder="type a message or @nick…" autocomplete="off" />
         <button id="send-btn">SEND</button>
       </div>
       <div class="status" id="input-status"></div>
@@ -402,10 +451,7 @@ function adjustHeight() {
   if (!app) return;
   
   if (window.visualViewport) {
-    // Используем высоту видимой области
     app.style.height = window.visualViewport.height + 'px';
-    
-    // Принудительно прокручиваем вниз, если клавиатура открылась
     if (document.activeElement === document.getElementById('msg-input')) {
       setTimeout(() => {
         const messagesEl = document.getElementById('messages');
@@ -413,12 +459,10 @@ function adjustHeight() {
       }, 100);
     }
   } else {
-    // Fallback для старых браузеров
     app.style.height = window.innerHeight + 'px';
   }
 }
 
-// Вызываем при загрузке и при любом изменении viewport
 if (window.visualViewport) {
   window.visualViewport.addEventListener('resize', adjustHeight);
   window.visualViewport.addEventListener('scroll', adjustHeight);
@@ -426,7 +470,7 @@ if (window.visualViewport) {
 window.addEventListener('resize', adjustHeight);
 window.addEventListener('orientationchange', adjustHeight);
 document.addEventListener('DOMContentLoaded', adjustHeight);
-adjustHeight(); // на всякий случай
+adjustHeight();
 
 // ============ Логика ============
 const API = "https://msg-wall.onrender.com";
@@ -532,6 +576,7 @@ const inputArea = document.getElementById("input-area");
 const msgInput  = document.getElementById("msg-input");
 const sendBtn   = document.getElementById("send-btn");
 const inputStatus = document.getElementById("input-status");
+const mentionsMenu = document.getElementById("mentions-menu");
 
 // ============ Fetch ============
 async function fetchMessages() {
@@ -597,10 +642,31 @@ function renderMessages(items) {
       const c = colorForHash(m.ip_hash);
       const a = authorLabelFor(m);
       const when = formatLocalFromUTC(m.when || "");
+      
+      // Формируем HTML для ответа (если есть reply_to)
+      let replyHtml = "";
+      if (m.reply_to) {
+        // Ищем хэш получателя по его нику, чтобы взять цвет
+        let targetHash = m.reply_to;
+        for (const [hash, nick] of Object.entries(nicksMap)) {
+          if (nick === m.reply_to) {
+            targetHash = hash;
+            break;
+          }
+        }
+        const targetColor = colorForHash(targetHash).accent;
+        
+        replyHtml = `
+          <span class="reply-arrow">→</span>
+          <span class="reply-target" style="color: ${targetColor};">@${escapeHtml(m.reply_to)}</span>
+        `;
+      }
+
       return `
         <div class="msg" style="--accent:${c.accent};">
           <span class="when">${escapeHtml(when)}</span>
           <span class="who">${escapeHtml(a.text)}</span>
+          ${replyHtml}
           <span class="text">${escapeHtml(m.text || "")}</span>
         </div>
       `;
@@ -610,6 +676,81 @@ function renderMessages(items) {
   renderedCount = items.length;
   scrollToBottom();
 }
+
+// ============ Обработка @ в поле ввода ============
+msgInput.addEventListener("input", () => {
+  const val = msgInput.value;
+  const cursorPos = msgInput.selectionStart;
+  
+  // Ищем последний символ @ перед курсором
+  const textBeforeCursor = val.slice(0, cursorPos);
+  const lastAt = textBeforeCursor.lastIndexOf("@");
+  
+  if (lastAt === -1) {
+    mentionsMenu.classList.remove("visible");
+    return;
+  }
+  
+  // Проверяем, что после @ нет пробелов (иначе это уже не ввод ника)
+  const query = textBeforeCursor.slice(lastAt + 1);
+  if (query.includes(" ")) {
+    mentionsMenu.classList.remove("visible");
+    return;
+  }
+
+  // Ищем всех пользователей с таким ником (или хэшем)
+  const allNicks = [];
+  for (const [hash, nick] of Object.entries(nicksMap)) {
+    allNicks.push({ hash, nick });
+  }
+
+  // Фильтруем по запросу
+  const filtered = allNicks.filter(item => 
+    item.nick.toLowerCase().includes(query.toLowerCase()) ||
+    item.hash.startsWith(query.toLowerCase())
+  );
+
+  if (filtered.length === 0) {
+    mentionsMenu.classList.remove("visible");
+    return;
+  }
+
+  // Отрисовываем список
+  mentionsMenu.innerHTML = filtered.map(item => {
+    const c = colorForHash(item.hash);
+    return `<div class="mention-item" data-nick="${escapeHtml(item.nick)}">
+      <span class="nick-color" style="color: ${c.accent}">@${escapeHtml(item.nick)}</span>
+    </div>`;
+  }).join("");
+
+  mentionsMenu.classList.add("visible");
+});
+
+// Клик по нику в выпадающем списке
+mentionsMenu.addEventListener("click", (e) => {
+  const item = e.target.closest(".mention-item");
+  if (!item) return;
+  
+  const selectedNick = item.dataset.nick;
+  const val = msgInput.value;
+  const cursorPos = msgInput.selectionStart;
+  const textBeforeCursor = val.slice(0, cursorPos);
+  const lastAt = textBeforeCursor.lastIndexOf("@");
+  
+  // Заменяем @query на @ник 
+  const newValue = val.slice(0, lastAt) + "@" + selectedNick + " " + val.slice(cursorPos);
+  msgInput.value = newValue;
+  
+  mentionsMenu.classList.remove("visible");
+  msgInput.focus();
+});
+
+// Скрываем меню при клике вне его
+document.addEventListener("click", (e) => {
+  if (!mentionsMenu.contains(e.target) && e.target !== msgInput) {
+    mentionsMenu.classList.remove("visible");
+  }
+});
 
 // ============ Bootstrap ============
 let bootstrapped = false;
@@ -682,7 +823,6 @@ async function submitCode() {
   renderMessages(allItems);
   inputArea.classList.add("visible");
   
-  // Принудительно поднимаем вьюпорт при фокусе
   msgInput.focus();
   setTimeout(adjustHeight, 100);
 }
@@ -788,10 +928,30 @@ async function sendMessage() {
   }
 
   // === Обычное сообщение ===
+  // Проверяем, начинается ли сообщение с @ник
+  let replyTo = null;
+  let textToSend = rawText;
+  
+  const match = rawText.match(/^@([a-zA-Z0-9_\-а-яА-Я]+)\s+(.+)$/);
+  if (match) {
+    const targetNick = match[1];
+    const remainingText = match[2];
+    
+    // Проверяем, существует ли такой ник
+    const knownNicks = Object.values(nicksMap);
+    if (knownNicks.includes(targetNick)) {
+      replyTo = targetNick;
+      textToSend = remainingText;
+    }
+  }
+
   sendBtn.disabled = true;
   setStatus("> sending…");
 
-  const res = await apiPost("/post", { code: sessionCode, text: rawText });
+  const payload = { code: sessionCode, text: textToSend };
+  if (replyTo) payload.reply_to = replyTo;
+
+  const res = await apiPost("/post", payload);
 
   sendBtn.disabled = false;
 
