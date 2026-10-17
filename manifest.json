@@ -1,8 +1,10 @@
 {
+  "id": "/MSG-WALL/",
   "name": "Msg Wall",
   "short_name": "Msg Wall",
   "description": "Terminal-style message board",
   "start_url": "./index.html",
+  "scope": "./",
   "display": "standalone",
   "background_color": "#0a0a0a",
   "theme_color": "#0a0a0a",
