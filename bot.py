@@ -297,6 +297,8 @@ class Handler(BaseHTTPRequestHandler):
 
         if self.path == "/post":
             text = str(data.get("text", "")).strip()
+            reply_to = str(data.get("reply_to", "")).strip()
+            
             if not text:
                 return self._send_json({"ok": False, "reason": "empty"})
             if len(text) > 500:
@@ -308,9 +310,13 @@ class Handler(BaseHTTPRequestHandler):
             record = {
                 "when": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
                 "ip_hash": h,
-                "nick": current_nick,  # <--- Новое поле
+                "nick": current_nick,
                 "text": text,
             }
+            
+            if reply_to:
+                record["reply_to"] = reply_to
+
             try:
                 append_to_file(MESSAGES_PATH, pack_record(record))
             except Exception as e:
