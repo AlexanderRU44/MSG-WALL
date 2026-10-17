@@ -37,7 +37,15 @@ DATA_BRANCH    = "data"
 MESSAGES_PATH  = os.environ.get("FILE_PATH", "messages.jsonl")
 NICKS_PATH     = "nicks.jsonl"
 
-# --- Nick change rate limit (in-memory) ---
+# --- In-memory cache ---
+# Сайт читает данные отсюда, а не из GitHub напрямую.
+_cache = {
+    "messages": [],   # список dict
+    "nicks": {},      # hash -> nick
+    "loaded": False,
+}
+
+# --- Nick change rate limit ---
 nick_last_change = {}
 NICK_COOLDOWN = 600
 
@@ -78,7 +86,6 @@ def valid_nick(nick: str) -> tuple[bool, str]:
 
 
 def get_contents(path: str) -> tuple[str, str | None]:
-    """Читаем файл из ветки data."""
     try:
         f = repo.get_contents(path, ref=DATA_BRANCH)
         return base64.b64decode(f.content).decode("utf-8"), f.sha
@@ -89,7 +96,6 @@ def get_contents(path: str) -> tuple[str, str | None]:
 
 
 def write_contents(path: str, content: str, sha: str | None, message: str):
-    """Пишем в ветку data."""
     if sha is None:
         repo.create_file(path, message, content, branch=DATA_BRANCH)
     else:
@@ -97,7 +103,6 @@ def write_contents(path: str, content: str, sha: str | None, message: str):
 
 
 def append_to_file(path: str, line: str):
-    """Дописать строку в файл в ветке data (с ретраями)."""
     for attempt in range(3):
         try:
             current, sha = get_contents(path)
@@ -113,8 +118,25 @@ def append_to_file(path: str, line: str):
             time.sleep(0.5 + attempt)
 
 
-def find_nick_for_hash(h: str) -> str | None:
+# ============ Cache loading ============
+
+def load_messages_from_github() -> list:
+    content, _ = get_contents(MESSAGES_PATH)
+    items = []
+    for line in content.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            items.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+    return items
+
+
+def load_nicks_from_github() -> dict:
     content, _ = get_contents(NICKS_PATH)
+    result = {}
     for line in content.splitlines():
         line = line.strip()
         if not line:
@@ -123,25 +145,23 @@ def find_nick_for_hash(h: str) -> str | None:
             rec = json.loads(line)
         except json.JSONDecodeError:
             continue
-        if rec.get("hash") == h:
-            return rec.get("nick")
-    return None
+        if rec.get("hash") and rec.get("nick"):
+            result[rec["hash"]] = rec["nick"]
+    return result
 
 
-def is_nick_taken(nick: str, exclude_hash: str) -> bool:
-    content, _ = get_contents(NICKS_PATH)
-    for line in content.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            rec = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if rec.get("nick") == nick and rec.get("hash") != exclude_hash:
-            return True
-    return False
+def refresh_cache():
+    try:
+        _cache["messages"] = load_messages_from_github()
+        _cache["nicks"] = load_nicks_from_github()
+        _cache["loaded"] = True
+        print(f"[cache] loaded {len(_cache['messages'])} messages, "
+              f"{len(_cache['nicks'])} nicks")
+    except Exception as e:
+        print(f"[cache] refresh error: {e}")
 
+
+# ============ Nick management ============
 
 def set_nick(h: str, nick: str):
     content, sha = get_contents(NICKS_PATH)
@@ -177,10 +197,10 @@ def get_client_ip(handler) -> str:
 
 class Handler(BaseHTTPRequestHandler):
 
-    def _send_json(self, data: dict, status: int = 200):
-        body = json.dumps(data).encode()
+    def _send_json(self, data, status: int = 200):
+        body = json.dumps(data, ensure_ascii=False).encode()
         self.send_response(status)
-        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
@@ -196,6 +216,23 @@ class Handler(BaseHTTPRequestHandler):
             return {}
 
     def do_GET(self):
+        # ---- data endpoints (без кода) ----
+        if self.path.startswith("/messages"):
+            if not _cache["loaded"]:
+                refresh_cache()
+            return self._send_json({"ok": True, "messages": _cache["messages"]})
+
+        if self.path.startswith("/nicks"):
+            if not _cache["loaded"]:
+                refresh_cache()
+            return self._send_json({"ok": True, "nicks": _cache["nicks"]})
+
+        if self.path.startswith("/refresh"):
+            # на случай ручного сброса кэша
+            refresh_cache()
+            return self._send_json({"ok": True})
+
+        # ---- ping ----
         self.send_response(200)
         self.send_header("Content-Type", "text/plain")
         self.end_headers()
@@ -204,7 +241,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_OPTIONS(self):
         self.send_response(204)
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.end_headers()
 
@@ -217,13 +254,17 @@ class Handler(BaseHTTPRequestHandler):
         if code != daily_code():
             return self._send_json({"ok": False, "reason": "code"})
 
+        # ---- verify ----
         if self.path == "/verify":
+            if not _cache["loaded"]:
+                refresh_cache()
             return self._send_json({
                 "ok": True,
                 "hash": h,
-                "nick": find_nick_for_hash(h)
+                "nick": _cache["nicks"].get(h),
             })
 
+        # ---- post message ----
         if self.path == "/post":
             text = str(data.get("text", "")).strip()
             if not text:
@@ -240,8 +281,11 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as e:
                 print(f"[post] error: {e}")
                 return self._send_json({"ok": False, "reason": "github"})
+            # обновляем кэш
+            _cache["messages"].append(record)
             return self._send_json({"ok": True, "hash": h})
 
+        # ---- change nick ----
         if self.path == "/nick":
             nick_raw = data.get("nick", "")
             ok_valid, result = valid_nick(nick_raw)
@@ -258,12 +302,15 @@ class Handler(BaseHTTPRequestHandler):
                     "wait": int(NICK_COOLDOWN - (now - last))
                 })
 
-            if is_nick_taken(nick, h):
-                return self._send_json({"ok": False, "reason": "taken"})
+            # занято ли?
+            for other_hash, existing_nick in _cache["nicks"].items():
+                if existing_nick == nick and other_hash != h:
+                    return self._send_json({"ok": False, "reason": "taken"})
 
             try:
                 set_nick(h, nick)
                 nick_last_change[h] = now
+                _cache["nicks"][h] = nick
             except Exception as e:
                 print(f"[nick] error: {e}")
                 return self._send_json({"ok": False, "reason": "github"})
@@ -317,6 +364,10 @@ async def cmd_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 def main():
+    # Загружаем данные до первого запроса с сайта
+    print("[startup] loading cache from GitHub…")
+    refresh_cache()
+
     threading.Thread(target=run_http_server, daemon=True).start()
 
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
