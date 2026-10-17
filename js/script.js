@@ -176,15 +176,12 @@ if (urlParams.has('admin')) {
   }
 } else {
   // Обычный режим
-  // Перехватываем вставку из буфера обмена на уровне документа
   document.addEventListener("paste", (e) => {
-    if (!gateEl.classList.contains("visible")) return; // Работает только на экране входа
-    
+    if (!gateEl.classList.contains("visible")) return;
     const pasted = (e.clipboardData || window.clipboardData).getData("text");
     if (pasted) {
       codeValue = pasted.trim();
       updateDigitsUI();
-      
       if (codeValue.length > 4 || /[a-zA-Z]/.test(codeValue)) {
         submitCode();
       } else if (codeValue.length === 4) {
