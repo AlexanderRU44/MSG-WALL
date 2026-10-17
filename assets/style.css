@@ -375,3 +375,17 @@ h1 {
   #input-area .input-row { gap: 8px; }
   #input-area button { padding: 6px 10px; }
 }
+/* Стили для админских сообщений */
+.msg.admin-msg {
+  background: rgba(255, 212, 59, 0.05);
+  border-left-color: #ffd43b;
+}
+.msg.admin-msg .who {
+  color: #ffd43b !important;
+  text-shadow: 0 0 6px #ffd43b;
+}
+
+/* Всплывающее меню */
+#admin-context-menu .menu-item:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
