@@ -4,7 +4,14 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>Msg Wall</title>
-<!-- Подключаем стили из папки assets -->
+
+<!-- Иконки для вкладки браузера и установки на устройства -->
+<link rel="icon" type="image/png" href="assets/icons/favicon.png">
+<link rel="apple-touch-icon" href="assets/icons/icon-192.png">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0a0a0a">
+
+<!-- Стили -->
 <link rel="stylesheet" href="assets/style.css">
 </head>
 <body>
@@ -57,7 +64,18 @@
   <div class="vignette"></div>
   <div id="status"></div>
 
-  <!-- Подключаем скрипт из папки js -->
+  <!-- Логика сайта -->
   <script src="js/script.js"></script>
+  
+  <!-- Регистрация Service Worker для установки приложения -->
+  <script>
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => {
+        navigator.serviceWorker.register("./sw.js")
+          .then(() => console.log("SW registered"))
+          .catch((err) => console.log("SW error:", err));
+      });
+    }
+  </script>
 </body>
 </html>
