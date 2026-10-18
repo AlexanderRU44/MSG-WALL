@@ -170,6 +170,9 @@ if (urlParams.has('admin')) {
           renderMessages(allItems);
           inputArea.classList.add("visible");
           msgInput.focus();
+          
+          // ВАЖНО: Запускаем обновление и для админа
+          setInterval(refresh, REFRESH_MS);
         } else {
           alert("Access denied");
           adminInput.value = "";
@@ -227,10 +230,7 @@ function scrollToBottom() {
 // ============ Рендер ============
 function authorLabelFor(msg) {
   if (msg.system) return null;
-  
-  // Если админ - показываем Administrator
   if (msg.admin) return { text: "@Administrator", isAdmin: true };
-  
   if (msg.nick) return { text: "@" + msg.nick };
   const n = nicksMap[msg.ip_hash];
   if (n) return { text: "@" + n };
@@ -247,14 +247,12 @@ function renderSystemText(text) {
 }
 
 function buildMessageHTML(m, idx) {
-  // Если сообщение от админа или системное — стилизуем как системное (серое)
   if (m.system || m.admin) {
-    const text = m.admin ? (m.text || "") : (m.text || "");
     const who = m.admin ? "@Administrator " : "";
     return `
       <div class="msg system">
         <span class="when">${escapeHtml(formatLocalFromUTC(m.when || ""))}</span>
-        <span class="text">${who}${renderSystemText(text)}</span>
+        <span class="text">${who}${renderSystemText(m.text || "")}</span>
       </div>
     `;
   }
@@ -292,7 +290,6 @@ function buildMessageHTML(m, idx) {
 async function animatePrintMessage(m) {
   isPrinting = true;
   const div = document.createElement("div");
-  
   if (m.system || m.admin) {
     const who = m.admin ? "@Administrator " : "";
     div.className = "msg system";
@@ -475,6 +472,9 @@ async function submitCode() {
   inputArea.classList.add("visible");
   if (msgInput) msgInput.focus();
   setTimeout(adjustHeight, 100);
+  
+  // ВАЖНО: Запускаем обновление и для обычного входа
+  setInterval(refresh, REFRESH_MS);
 }
 
 if (keypadEl) {
@@ -611,4 +611,3 @@ async function bootstrap() {
   updateDigitsUI();
 }
 bootstrap();
-setInterval(refresh, REFRESH_MS);
