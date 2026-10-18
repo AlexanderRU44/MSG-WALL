@@ -1,8 +1,9 @@
-const CACHE_NAME = "msg-wall-v25";
+const CACHE_NAME = "msg-wall-v26";
 const ASSETS = [
   "./",
   "./index.html",
   "./assets/style.css",
+  "./js/i18n.js",
   "./js/script.js",
   "./manifest.json",
   "./assets/icons/icon-192.png",
@@ -27,7 +28,6 @@ self.addEventListener("activate", (event) => {
 
 self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
-  // Не кэшируем запросы к API (Render, GitHub)
   if (url.hostname.includes("onrender.com") || url.hostname.includes("githubusercontent.com")) {
     return;
   }
