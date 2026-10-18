@@ -340,7 +340,7 @@ class Handler(BaseHTTPRequestHandler):
             update_online(h)
             if not _cache["loaded"]:
                 refresh_cache()
-                
+
             if _cache["bans"].get(h) is True and not is_admin:
                 return self._send_json({"ok": False, "reason": "banned"})
 
@@ -355,25 +355,24 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/post":
             text = str(data.get("text", "")).strip()
             reply_to = str(data.get("reply_to", "")).strip()
-            
+
             if not text:
                 return self._send_json({"ok": False, "reason": "empty"})
             if len(text) > 500:
                 text = text[:500]
-            
+
             current_nick = _cache["nicks"].get(h, "")
-            
+
             record = {
                 "when": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
                 "ip_hash": h,
                 "nick": current_nick,
                 "text": text,
             }
-            
-            # Если пишет админ, ставим флаг
+
             if is_admin:
                 record["admin"] = True
-            
+
             if reply_to:
                 record["reply_to"] = reply_to
 
@@ -434,9 +433,28 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/admin/delete":
             if not is_admin:
                 return self._send_json({"ok": False, "reason": "denied"})
-            
+
+            when_str = data.get("when")
             index = data.get("index")
-            if index is not None and 0 <= index < len(_cache["messages"]):
+
+            # Приоритет — удаление по when (уникальный идентификатор)
+            if when_str:
+                idx = next(
+                    (i for i, m in enumerate(_cache["messages"]) if m.get("when") == when_str),
+                    -1
+                )
+                if idx == -1:
+                    return self._send_json({"ok": False, "reason": "notfound"})
+                del _cache["messages"][idx]
+                try:
+                    rewrite_messages_file()
+                except Exception as e:
+                    print(f"[admin] delete error: {e}")
+                    return self._send_json({"ok": False, "reason": "github"})
+                return self._send_json({"ok": True})
+
+            # Фолбэк — по индексу (старый клиент)
+            if index is not None and isinstance(index, int) and 0 <= index < len(_cache["messages"]):
                 del _cache["messages"][index]
                 try:
                     rewrite_messages_file()
@@ -444,38 +462,43 @@ class Handler(BaseHTTPRequestHandler):
                     print(f"[admin] delete error: {e}")
                     return self._send_json({"ok": False, "reason": "github"})
                 return self._send_json({"ok": True})
+
             return self._send_json({"ok": False, "reason": "notfound"})
 
         if self.path == "/admin/ban":
             if not is_admin:
                 return self._send_json({"ok": False, "reason": "denied"})
-            
+
             target_hash = data.get("hash")
-            if target_hash:
-                _cache["bans"][target_hash] = True
-                try:
-                    rewrite_bans_file()
-                except Exception as e:
-                    print(f"[admin] ban error: {e}")
-                    return self._send_json({"ok": False, "reason": "github"})
-                return self._send_json({"ok": True})
-            return self._send_json({"ok": False, "reason": "notfound"})
+            if not target_hash:
+                return self._send_json({"ok": False, "reason": "notfound"})
+            if target_hash == h:
+                return self._send_json({"ok": False, "reason": "self"})
+
+            _cache["bans"][target_hash] = True
+            try:
+                rewrite_bans_file()
+            except Exception as e:
+                print(f"[admin] ban error: {e}")
+                return self._send_json({"ok": False, "reason": "github"})
+            return self._send_json({"ok": True})
 
         if self.path == "/admin/unban":
             if not is_admin:
                 return self._send_json({"ok": False, "reason": "denied"})
-            
+
             target_hash = data.get("hash")
-            if target_hash:
-                if target_hash in _cache["bans"]:
-                    del _cache["bans"][target_hash]
-                try:
-                    rewrite_bans_file()
-                except Exception as e:
-                    print(f"[admin] unban error: {e}")
-                    return self._send_json({"ok": False, "reason": "github"})
-                return self._send_json({"ok": True})
-            return self._send_json({"ok": False, "reason": "notfound"})
+            if not target_hash:
+                return self._send_json({"ok": False, "reason": "notfound"})
+
+            if target_hash in _cache["bans"]:
+                del _cache["bans"][target_hash]
+            try:
+                rewrite_bans_file()
+            except Exception as e:
+                print(f"[admin] unban error: {e}")
+                return self._send_json({"ok": False, "reason": "github"})
+            return self._send_json({"ok": True})
 
         return self._send_json({"ok": False, "reason": "notfound"}, 404)
 
