@@ -139,8 +139,6 @@ document.addEventListener("click", () => { contextMenu.style.display = "none"; }
 const urlParams = new URLSearchParams(window.location.search);
 if (urlParams.has('admin')) {
   if (hiddenInput) hiddenInput.style.display = "none";
-  
-  // Принудительно скрываем цифровую клавиатуру и квадратики
   if (digitsEl) digitsEl.style.display = "none";
   if (keypadEl) keypadEl.style.display = "none";
 
@@ -230,8 +228,8 @@ function scrollToBottom() {
 function authorLabelFor(msg) {
   if (msg.system) return null;
   
-  const isMe = (msg.ip_hash === myHash);
-  if (isAdminMode && isMe) return { text: "@Administrator", isAdmin: true };
+  // Если админ - показываем Administrator
+  if (msg.admin) return { text: "@Administrator", isAdmin: true };
   
   if (msg.nick) return { text: "@" + msg.nick };
   const n = nicksMap[msg.ip_hash];
@@ -249,11 +247,14 @@ function renderSystemText(text) {
 }
 
 function buildMessageHTML(m, idx) {
-  if (m.system) {
+  // Если сообщение от админа или системное — стилизуем как системное (серое)
+  if (m.system || m.admin) {
+    const text = m.admin ? (m.text || "") : (m.text || "");
+    const who = m.admin ? "@Administrator " : "";
     return `
       <div class="msg system">
         <span class="when">${escapeHtml(formatLocalFromUTC(m.when || ""))}</span>
-        <span class="text">${renderSystemText(m.text || "")}</span>
+        <span class="text">${who}${renderSystemText(text)}</span>
       </div>
     `;
   }
@@ -275,18 +276,11 @@ function buildMessageHTML(m, idx) {
     `;
   }
 
-  let msgStyle = `--accent:${c.accent}; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px;`;
-  let msgClass = "msg";
-  if (isAdminMode && a.isAdmin) {
-    msgStyle = `--accent:#ffd43b; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px;`;
-    msgClass = "msg admin-msg";
-  }
-
   const whoClick = (isAdminMode && !a.isAdmin) ? `onclick="showAdminMenu(event, '${m.ip_hash}', ${idx})" style="cursor:pointer;"` : "";
   const whoHtml = `<span class="who" ${whoClick}>${escapeHtml(a.text)}</span>`;
 
   return `
-    <div class="${msgClass}" style="${msgStyle}">
+    <div class="msg" style="--accent:${c.accent}; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px;">
       <span class="when">${escapeHtml(when)}</span>
       ${whoHtml}
       ${replyHtml}
@@ -298,13 +292,15 @@ function buildMessageHTML(m, idx) {
 async function animatePrintMessage(m) {
   isPrinting = true;
   const div = document.createElement("div");
-  if (m.system) {
+  
+  if (m.system || m.admin) {
+    const who = m.admin ? "@Administrator " : "";
     div.className = "msg system";
     div.innerHTML = `<span class="when">${escapeHtml(formatLocalFromUTC(m.when || ""))}</span> <span class="text"></span>`;
     messagesEl.appendChild(div);
     scrollToBottom();
     const textEl = div.querySelector(".text");
-    const fullText = m.text || "";
+    const fullText = who + (m.text || "");
     for (let i = 0; i < fullText.length; i++) {
       textEl.textContent += fullText[i];
       scrollToBottom();
@@ -325,15 +321,12 @@ async function animatePrintMessage(m) {
       replyHtml = `<span class="reply-arrow">→</span><span class="reply-target" style="color: ${targetColor};">@${escapeHtml(m.reply_to)}</span>`;
     }
     
-    let msgStyle = `--accent:${c.accent}; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px;`;
-    let msgClass = "msg";
-    if (isAdminMode && a.isAdmin) {
-      msgStyle = `--accent:#ffd43b; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px;`;
-      msgClass = "msg admin-msg";
-    }
-    
-    div.className = msgClass;
-    div.style.cssText = msgStyle;
+    div.className = "msg";
+    div.style.setProperty("--accent", c.accent);
+    div.style.display = "flex";
+    div.style.flexWrap = "wrap";
+    div.style.alignItems = "baseline";
+    div.style.gap = "4px";
     div.innerHTML = `
       <span class="when">${escapeHtml(when)}</span>
       <span class="who">${escapeHtml(a.text)}</span>
