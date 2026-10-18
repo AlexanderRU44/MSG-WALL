@@ -142,15 +142,7 @@ contextMenu.style.cssText = "display: none; position: fixed; background: #141414
 document.body.appendChild(contextMenu);
 document.addEventListener("click", () => { contextMenu.style.display = "none"; });
 
-// ============ Переключатель языка (кнопки) ============
-document.querySelectorAll("[data-lang-btn]").forEach(btn => {
-  btn.addEventListener("click", () => {
-    const lang = btn.getAttribute("data-lang-btn");
-    setLang(lang);
-  });
-});
-
-// Обновление слогана/meta при смене языка любым способом (кнопка или /lang)
+// Обновление слогана/meta при смене языка
 document.addEventListener("langchange", () => {
   if (sloganEl && !sloganEl.querySelector(".cursor")) {
     sloganEl.innerHTML = PROMPT_HTML + escapeHtml(t("app.slogan"));
