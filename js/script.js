@@ -26,7 +26,6 @@ adjustHeight();
 // ============ Логика ============
 const API = "https://msg-wall.onrender.com";
 const REFRESH_MS = 5000;
-const SLOGAN_TEXT = "write it — and it stays";
 
 const PALETTE = [
   { accent: "#ff6b6b" }, { accent: "#ffa94d" }, { accent: "#ffd43b" }, { accent: "#a9e34b" },
@@ -76,6 +75,13 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 const rand = (a, b) => Math.random() * (b - a) + a;
 const PROMPT_HTML = '<span class="prompt">&gt;</span> ';
 const CURSOR_HTML = '<span class="cursor"></span>';
+
+function reasonText(reason, vars) {
+  if (!reason) return t("reason.parse");
+  const key = "reason." + reason;
+  const localized = t(key, vars);
+  return localized === key ? reason : localized;
+}
 
 async function typeInto(el, text, charMin, charMax) {
   let typed = "";
@@ -136,6 +142,24 @@ contextMenu.style.cssText = "display: none; position: fixed; background: #141414
 document.body.appendChild(contextMenu);
 document.addEventListener("click", () => { contextMenu.style.display = "none"; });
 
+// ============ Переключатель языка (кнопки) ============
+document.querySelectorAll("[data-lang-btn]").forEach(btn => {
+  btn.addEventListener("click", () => {
+    const lang = btn.getAttribute("data-lang-btn");
+    setLang(lang);
+  });
+});
+
+// Обновление слогана/meta при смене языка любым способом (кнопка или /lang)
+document.addEventListener("langchange", () => {
+  if (sloganEl && !sloganEl.querySelector(".cursor")) {
+    sloganEl.innerHTML = PROMPT_HTML + escapeHtml(t("app.slogan"));
+  }
+  if (metaEl && !metaEl.querySelector(".cursor")) {
+    metaEl.innerHTML = PROMPT_HTML + escapeHtml(t("app.meta.total", { n: allItems.length }));
+  }
+});
+
 // ============ Проверка режима админа ============
 const urlParams = new URLSearchParams(window.location.search);
 if (urlParams.has('admin')) {
@@ -146,7 +170,8 @@ if (urlParams.has('admin')) {
   const adminArea = document.getElementById("admin-input-area");
   if (adminArea) {
     adminArea.style.display = "block";
-    document.getElementById("gate-hint").textContent = "enter admin code";
+    document.getElementById("gate-hint").setAttribute("data-i18n", "gate.enter_admin_code");
+    document.getElementById("gate-hint").textContent = t("gate.enter_admin_code");
     const adminInput = document.getElementById("admin-code-input");
     adminInput.focus();
     adminInput.addEventListener("keydown", async (e) => {
@@ -164,7 +189,7 @@ if (urlParams.has('admin')) {
           myNick = res.nick;
           gateEl.classList.remove("visible");
           loadingEl.classList.remove("hidden");
-          await typeCentered(loadingEl, "admin mode activated…", 40, 90);
+          await typeCentered(loadingEl, t("loading.admin_activated"), 40, 90);
           await sleep(400);
           loadingEl.classList.add("hidden");
           try {
@@ -175,11 +200,11 @@ if (urlParams.has('admin')) {
             nicksMap = {};
           }
           await fullRender(allItems);
-          metaEl.innerHTML = PROMPT_HTML + "total messages: " + allItems.length;
+          metaEl.innerHTML = PROMPT_HTML + escapeHtml(t("app.meta.total", { n: allItems.length }));
           inputArea.classList.add("visible");
           msgInput.focus();
         } else {
-          alert("Access denied");
+          alert(t("alert.access_denied"));
           adminInput.value = "";
         }
       }
@@ -250,7 +275,6 @@ function renderSystemText(text) {
   });
 }
 
-// Нормализация hash: null/undefined/"undefined"/"null"/"" → ""
 function normalizeHash(h) {
   if (h === null || h === undefined) return "";
   const s = String(h);
@@ -258,12 +282,9 @@ function normalizeHash(h) {
   return s;
 }
 
-// Возвращает onclick-атрибут для клика по нику в админ-режиме.
-// Для admin-сообщений (m.admin === true) hash пустой — бан скроется.
 function makeWhoClickAttr(m) {
   if (!isAdminMode) return "";
   const hashArg = m.admin ? "" : normalizeHash(m.ip_hash);
-  // when в кавычках — экранируем одинарные кавычки на всякий случай
   const safeWhen = String(m.when || "").replace(/'/g, "\\'");
   const safeHash = hashArg.replace(/'/g, "\\'");
   return `onclick="showAdminMenu(event, '${safeWhen}', '${safeHash}')" style="cursor:pointer;"`;
@@ -391,7 +412,7 @@ async function animatePrintMessage(m) {
 function renderMessages(items) {
   if (isPrinting) return false;
   if (items.length === 0) {
-    messagesEl.innerHTML = '<div class="tline"><span class="dim">&gt; no messages yet_</span></div>';
+    messagesEl.innerHTML = `<div class="tline"><span class="dim">${escapeHtml(t("messages.empty"))}</span></div>`;
     renderedCount = 0;
     lastRenderedWhes = [];
     return true;
@@ -442,17 +463,15 @@ window.showAdminMenu = function(e, when, hash) {
   const h = normalizeHash(hash);
   const items = [];
 
-  // Удалить — можно всегда (и своё, и чужое)
   items.push(
-    `<div class="menu-item" onclick="deleteMsg('${String(when).replace(/'/g, "\\'")}')" style="padding: 10px 16px; cursor: pointer; color: #ff6b6b;">Удалить сообщение</div>`
+    `<div class="menu-item" onclick="deleteMsg('${String(when).replace(/'/g, "\\'")}')" style="padding: 10px 16px; cursor: pointer; color: #ff6b6b;">${escapeHtml(t("admin.menu.delete"))}</div>`
   );
 
-  // Бан/разбан — только если есть непустой чужой hash
   if (h && h !== myHash) {
     const isBanned = bansMap[h] === true;
-    const banText = isBanned ? "Разбанить пользователя" : "Забанить пользователя";
+    const banText = isBanned ? t("admin.menu.unban") : t("admin.menu.ban");
     items.push(
-      `<div class="menu-item" onclick="toggleBan('${h.replace(/'/g, "\\'")}')" style="padding: 10px 16px; cursor: pointer; color: #ffa94d;">${banText}</div>`
+      `<div class="menu-item" onclick="toggleBan('${h.replace(/'/g, "\\'")}')" style="padding: 10px 16px; cursor: pointer; color: #ffa94d;">${escapeHtml(banText)}</div>`
     );
   }
 
@@ -488,19 +507,16 @@ function syncRenderedFromDOM() {
 window.deleteMsg = async function(whenStr) {
   contextMenu.style.display = "none";
 
-  // Всегда подтягиваем свежий список — allItems мог не содержать
-  // только что пришедшее сообщение (refresh ещё не сработал).
   try {
     allItems = await fetchMessages();
   } catch (e) {
-    alert("Не удалось получить список сообщений");
+    alert(t("alert.fetch_failed"));
     return;
   }
 
   const exists = allItems.some(m => m.when === whenStr);
 
   if (!exists) {
-    // На сервере уже нет — убираем из DOM и синхронизируем
     const msgEls = messagesEl.querySelectorAll(".msg");
     for (const el of msgEls) {
       if (el.dataset.when === whenStr) {
@@ -509,14 +525,13 @@ window.deleteMsg = async function(whenStr) {
       }
     }
     syncRenderedFromDOM();
-    metaEl.innerHTML = PROMPT_HTML + "total messages: " + allItems.length;
+    metaEl.innerHTML = PROMPT_HTML + escapeHtml(t("app.meta.total", { n: allItems.length }));
     return;
   }
 
-  // Удаляем по when — надёжнее индекса (индекс "съезжает" при параллельных удалениях)
   const res = await apiPost("/admin/delete", { code: sessionCode, when: whenStr });
   if (!res.ok) {
-    alert("Ошибка удаления: " + (res.reason || "unknown"));
+    alert(t("alert.delete_error", { reason: reasonText(res.reason) }));
     return;
   }
 
@@ -530,21 +545,15 @@ window.deleteMsg = async function(whenStr) {
 
   try { allItems = await fetchMessages(); } catch (e) {}
   syncRenderedFromDOM();
-  metaEl.innerHTML = PROMPT_HTML + "total messages: " + allItems.length;
+  metaEl.innerHTML = PROMPT_HTML + escapeHtml(t("app.meta.total", { n: allItems.length }));
 };
 
 window.toggleBan = async function(hash) {
   contextMenu.style.display = "none";
 
   const h = normalizeHash(hash);
-  if (!h) {
-    alert("Нет hash пользователя — невозможно забанить");
-    return;
-  }
-  if (h === myHash) {
-    alert("Нельзя забанить самого себя");
-    return;
-  }
+  if (!h) { alert(t("alert.no_hash")); return; }
+  if (h === myHash) { alert(t("alert.self_ban")); return; }
 
   const isBanned = bansMap[h] === true;
   const endpoint = isBanned ? "/admin/unban" : "/admin/ban";
@@ -552,13 +561,13 @@ window.toggleBan = async function(hash) {
   const res = await apiPost(endpoint, { code: sessionCode, hash: h });
   if (res.ok) {
     bansMap[h] = !isBanned;
-    alert(isBanned ? "Пользователь разбанен" : "Пользователь забанен");
+    alert(isBanned ? t("alert.unbanned_ok") : t("alert.banned_ok"));
     try {
       allItems = await fetchMessages();
       await fullRender(allItems);
     } catch(e){}
   } else {
-    alert("Ошибка: " + (res.reason || "unknown"));
+    alert(t("alert.ban_error", { reason: reasonText(res.reason) }));
   }
 };
 
@@ -582,7 +591,7 @@ async function submitCode() {
   if (!res.ok) {
     if (res.reason === "banned") {
       gateEl.classList.remove("visible");
-      messagesEl.innerHTML = '<div class="tline"><span class="err" style="font-size: 1.2rem; display: block; margin-top: 20px;">&gt; access denied. you are banned.</span></div>';
+      messagesEl.innerHTML = `<div class="tline"><span class="err" style="font-size: 1.2rem; display: block; margin-top: 20px;">${escapeHtml(t("messages.banned"))}</span></div>`;
       inputArea.classList.remove("visible");
       return;
     }
@@ -592,7 +601,7 @@ async function submitCode() {
   codeValue = ""; if (hiddenInput) hiddenInput.value = ""; updateDigitsUI();
   gateEl.classList.remove("visible");
   loadingEl.textContent = ""; loadingEl.classList.remove("hidden");
-  await typeCentered(loadingEl, "loading…", 40, 90);
+  await typeCentered(loadingEl, t("loading.loading"), 40, 90);
   await sleep(400); loadingEl.classList.add("hidden");
   try {
     allItems = await fetchMessages();
@@ -602,7 +611,7 @@ async function submitCode() {
     nicksMap = {};
   }
   await fullRender(allItems);
-  metaEl.innerHTML = PROMPT_HTML + "total messages: " + allItems.length;
+  metaEl.innerHTML = PROMPT_HTML + escapeHtml(t("app.meta.total", { n: allItems.length }));
   inputArea.classList.add("visible");
   if (msgInput) msgInput.focus();
   setTimeout(adjustHeight, 100);
@@ -622,9 +631,10 @@ if (keypadEl) {
 
 // ============ Dropdown ============
 const COMMANDS = [
-  { cmd: "nick", desc: "change your nick" },
-  { cmd: "help", desc: "show available commands" },
-  { cmd: "online", desc: "show online users" }
+  { cmd: "nick", descKey: "cmd.nick.desc" },
+  { cmd: "help", descKey: "cmd.help.desc" },
+  { cmd: "online", descKey: "cmd.online.desc" },
+  { cmd: "lang", descKey: "cmd.lang.desc" }
 ];
 
 if (msgInput) {
@@ -636,7 +646,7 @@ if (msgInput) {
       if (query.includes(" ")) { dropdownMenu.classList.remove("visible"); return; }
       const filtered = COMMANDS.filter(c => c.cmd.startsWith(query.toLowerCase()));
       if (filtered.length === 0) { dropdownMenu.classList.remove("visible"); return; }
-      dropdownMenu.innerHTML = filtered.map(c => `<div class="dropdown-item" data-type="cmd" data-val="${c.cmd}"><span>/${c.cmd}</span><span class="cmd-desc">${c.desc}</span></div>`).join("");
+      dropdownMenu.innerHTML = filtered.map(c => `<div class="dropdown-item" data-type="cmd" data-val="${c.cmd}"><span>/${c.cmd}</span><span class="cmd-desc">${escapeHtml(t(c.descKey))}</span></div>`).join("");
       dropdownMenu.classList.add("visible"); return;
     }
     if (lastAt !== -1 && lastAt > lastSlash) {
@@ -685,27 +695,67 @@ async function sendMessage() {
 
   if (rawText.startsWith("/")) {
     const parts = rawText.split(" "); const cmd = parts[0].toLowerCase(); const arg = parts.slice(1).join(" ").trim();
-    if (cmd === "/help") { msgInput.value = ""; printLocalStatus(["Commands:", "/nick <name> — change nick", "/online — online users"]); return; }
-    if (cmd === "/online") {
-      msgInput.value = ""; printLocalStatus(["> checking…"]);
-      try { const res = await fetch(API + "/online"); const data = await res.json(); printLocalStatus([`> online: ${data.online}`]); } catch (e) {}
+
+    // --- /lang | /язык ---
+    if (cmd === "/lang" || cmd === "/язык") {
+      msgInput.value = "";
+      const list = getSupportedLangs().join(", ");
+      if (!arg) {
+        printLocalStatus([t("status.lang.usage", { list })]);
+        return;
+      }
+      const target = arg.toLowerCase();
+      const ok = setLang(target);
+      if (!ok) {
+        printLocalStatus([t("status.lang.unknown", { lang: target, list })]);
+        return;
+      }
+      printLocalStatus([t("status.lang.changed", { lang: target })]);
       return;
     }
+
+    if (cmd === "/help") {
+      msgInput.value = "";
+      printLocalStatus([
+        t("status.cmd.help_header"),
+        t("status.cmd.nick_usage"),
+        t("status.cmd.online_usage"),
+        t("status.cmd.lang_usage")
+      ]);
+      return;
+    }
+
+    if (cmd === "/online") {
+      msgInput.value = ""; printLocalStatus([t("status.cmd.checking")]);
+      try {
+        const res = await fetch(API + "/online");
+        const data = await res.json();
+        printLocalStatus([t("status.cmd.online_count", { n: data.online })]);
+      } catch (e) {}
+      return;
+    }
+
     if (cmd === "/nick") {
-      if (!arg) { msgInput.value = ""; printLocalStatus(["error: usage /nick <name>"]); return; }
-      msgInput.value = ""; printLocalStatus(["> changing nick…"]);
+      if (!arg) { msgInput.value = ""; printLocalStatus([t("status.cmd.nick_usage_error")]); return; }
+      msgInput.value = ""; printLocalStatus([t("status.cmd.nick_changing")]);
       const res = await apiPost("/nick", { code: sessionCode, nick: arg });
-      if (!res.ok) { printLocalStatus(["error: " + res.reason]); return; }
-      myNick = res.nick; printLocalStatus([`> success: @${res.nick}`]);
+      if (!res.ok) {
+        const vars = res.reason === "cooldown" && res.wait ? { n: res.wait } : undefined;
+        printLocalStatus([t("status.cmd.error_prefix", { reason: reasonText(res.reason, vars) })]);
+        return;
+      }
+      myNick = res.nick;
+      printLocalStatus([t("status.cmd.nick_success", { nick: res.nick })]);
       try {
         nicksMap = await fetchNicks();
         allItems = await fetchMessages();
         await fullRender(allItems);
-        metaEl.innerHTML = PROMPT_HTML + "total messages: " + allItems.length;
+        metaEl.innerHTML = PROMPT_HTML + escapeHtml(t("app.meta.total", { n: allItems.length }));
       } catch (e) {}
       return;
     }
-    msgInput.value = ""; printLocalStatus(["error: unknown command"]); return;
+
+    msgInput.value = ""; printLocalStatus([t("status.cmd.unknown")]); return;
   }
 
   let replyTo = null; let textToSend = rawText;
@@ -726,7 +776,7 @@ async function sendMessage() {
   if (!res.ok) {
     isSending = false;
     sendBtn.disabled = false;
-    printLocalStatus(["> error: " + res.reason]);
+    printLocalStatus([t("status.send.error_prefix", { reason: reasonText(res.reason) })]);
     return;
   }
 
@@ -740,7 +790,7 @@ async function sendMessage() {
       await sleep(200);
     }
     syncRenderedFromDOM();
-    metaEl.innerHTML = PROMPT_HTML + "total messages: " + allItems.length;
+    metaEl.innerHTML = PROMPT_HTML + escapeHtml(t("app.meta.total", { n: allItems.length }));
   } catch (e) {}
 
   isSending = false;
@@ -758,7 +808,6 @@ async function refresh() {
     const items = await fetchMessages();
 
     if (items.length < renderedCount) {
-      // Удаление
       const newWhes = new Set(items.map(m => m.when));
       const msgEls = messagesEl.querySelectorAll(".msg");
       for (const el of msgEls) {
@@ -770,9 +819,8 @@ async function refresh() {
       }
       allItems = items;
       syncRenderedFromDOM();
-      metaEl.innerHTML = PROMPT_HTML + "total messages: " + allItems.length;
+      metaEl.innerHTML = PROMPT_HTML + escapeHtml(t("app.meta.total", { n: allItems.length }));
     } else if (items.length > renderedCount) {
-      // Новые
       const domWhes = new Set(lastRenderedWhes);
       const toPrint = items.filter(m => !domWhes.has(m.when));
       allItems = items;
@@ -782,14 +830,14 @@ async function refresh() {
         await sleep(200);
       }
       syncRenderedFromDOM();
-      metaEl.innerHTML = PROMPT_HTML + "total messages: " + allItems.length;
+      metaEl.innerHTML = PROMPT_HTML + escapeHtml(t("app.meta.total", { n: allItems.length }));
     } else {
       allItems = items;
     }
 
-    document.getElementById("status").textContent = "// updated: " + nowLocalString();
+    document.getElementById("status").textContent = t("status.updated", { time: nowLocalString() });
   } catch (e) {
-    document.getElementById("status").textContent = "// load error: " + e.message;
+    document.getElementById("status").textContent = t("status.load_error", { msg: e.message });
   } finally {
     isRefreshing = false;
   }
@@ -807,10 +855,13 @@ function startRefreshInterval() {
 let bootstrapped = false;
 async function bootstrap() {
   if (bootstrapped) return; bootstrapped = true;
-  await typeInto(sloganEl, SLOGAN_TEXT, 30, 70);
+
+  applyTranslations();
+
+  await typeInto(sloganEl, t("app.slogan"), 30, 70);
   await sleep(300);
   try { allItems = await fetchMessages(); nicksMap = await fetchNicks(); } catch (e) { allItems = []; nicksMap = {}; }
-  await typeInto(metaEl, "total messages: " + allItems.length, 25, 50);
+  await typeInto(metaEl, t("app.meta.total", { n: allItems.length }), 25, 50);
   gateEl.classList.add("visible");
   updateDigitsUI();
 }
