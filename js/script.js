@@ -161,13 +161,22 @@ if (urlParams.has('admin')) {
           bansMap = res.bans || {};
           myHash = res.hash;
           myNick = res.nick;
+          unlocked = true;  // ← КЛЮЧЕВОЙ ФИКС: включаем refresh для админа
           gateEl.classList.remove("visible");
           loadingEl.classList.remove("hidden");
           await typeCentered(loadingEl, "admin mode activated…", 40, 90);
           await sleep(400);
           loadingEl.classList.add("hidden");
-          try { allItems = await fetchMessages(); nicksMap = await fetchNicks(); } catch (err) {}
-          renderMessages(allItems);
+          try {
+            allItems = await fetchMessages();
+            nicksMap = await fetchNicks();
+          } catch (err) {
+            allItems = [];
+            nicksMap = {};
+          }
+          await renderMessages(allItems);
+          renderedCount = allItems.length;
+          metaEl.innerHTML = PROMPT_HTML + "total messages: " + allItems.length;
           inputArea.classList.add("visible");
           msgInput.focus();
         } else {
@@ -423,7 +432,11 @@ window.deleteMsg = async function(whenStr) {
         break;
       }
     }
-    try { allItems = await fetchMessages(); renderedCount = allItems.length; metaEl.innerHTML = PROMPT_HTML + "total messages: " + allItems.length; } catch(e){}
+    try {
+      allItems = await fetchMessages();
+      renderedCount = allItems.length;
+      metaEl.innerHTML = PROMPT_HTML + "total messages: " + allItems.length;
+    } catch(e){}
   } else {
     alert("Ошибка удаления");
   }
@@ -438,7 +451,11 @@ window.toggleBan = async function(hash) {
   if (res.ok) {
     bansMap[hash] = !isBanned;
     alert(isBanned ? "Пользователь разбанен" : "Пользователь забанен");
-    try { allItems = await fetchMessages(); renderMessages(allItems); } catch(e){}
+    try {
+      allItems = await fetchMessages();
+      renderMessages(allItems);
+      renderedCount = allItems.length;
+    } catch(e){}
   } else {
     alert("Ошибка");
   }
@@ -476,8 +493,16 @@ async function submitCode() {
   loadingEl.textContent = ""; loadingEl.classList.remove("hidden");
   await typeCentered(loadingEl, "loading…", 40, 90);
   await sleep(400); loadingEl.classList.add("hidden");
-  try { allItems = await fetchMessages(); nicksMap = await fetchNicks(); } catch (e) {}
-  renderMessages(allItems);
+  try {
+    allItems = await fetchMessages();
+    nicksMap = await fetchNicks();
+  } catch (e) {
+    allItems = [];
+    nicksMap = {};
+  }
+  await renderMessages(allItems);
+  renderedCount = allItems.length;
+  metaEl.innerHTML = PROMPT_HTML + "total messages: " + allItems.length;
   inputArea.classList.add("visible");
   if (msgInput) msgInput.focus();
   setTimeout(adjustHeight, 100);
@@ -570,7 +595,13 @@ async function sendMessage() {
       const res = await apiPost("/nick", { code: sessionCode, nick: arg });
       if (!res.ok) { printLocalStatus(["error: " + res.reason]); return; }
       myNick = res.nick; printLocalStatus([`> success: @${res.nick}`]);
-      try { nicksMap = await fetchNicks(); allItems = await fetchMessages(); renderMessages(allItems); metaEl.innerHTML = PROMPT_HTML + "total messages: " + allItems.length; } catch (e) {}
+      try {
+        nicksMap = await fetchNicks();
+        allItems = await fetchMessages();
+        renderMessages(allItems);
+        renderedCount = allItems.length;
+        metaEl.innerHTML = PROMPT_HTML + "total messages: " + allItems.length;
+      } catch (e) {}
       return;
     }
     msgInput.value = ""; printLocalStatus(["error: unknown command"]); return;
@@ -584,7 +615,8 @@ async function sendMessage() {
   if (!res.ok) { printLocalStatus(["> error: " + res.reason]); return; }
   try {
     const newItems = await fetchMessages(); const oldCount = allItems.length; const newMessages = newItems.slice(oldCount);
-    allItems = newItems; metaEl.innerHTML = PROMPT_HTML + "total messages: " + allItems.length;
+    allItems = newItems;
+    metaEl.innerHTML = PROMPT_HTML + "total messages: " + allItems.length;
     for (const m of newMessages) { await animatePrintMessage(m); await sleep(300); }
     renderedCount = allItems.length;
   } catch (e) {}
@@ -593,13 +625,14 @@ if (sendBtn) sendBtn.addEventListener("click", sendMessage);
 
 // ============ Periodic refresh ============
 async function refresh() {
-  if (!unlocked) return; 
-  // Убрали проверку isPrinting, чтобы обновление не застревало
-  
+  // Работает и для пользователя, и для админа — как только есть сессия
+  if (!sessionCode) return;
+  if (isPrinting) return;
   try {
     const items = await fetchMessages();
     
     if (items.length < renderedCount) {
+      // Удаление (возможно, админом)
       const newWhes = new Set(items.map(m => m.when));
       const msgEls = messagesEl.querySelectorAll(".msg");
       
@@ -612,16 +645,31 @@ async function refresh() {
       renderedCount = items.length;
       metaEl.innerHTML = PROMPT_HTML + "total messages: " + allItems.length;
     } else if (items.length > renderedCount) {
+      // Новые сообщения
       const newMessages = items.slice(renderedCount);
       allItems = items;
+      // Обновляем ники перед печатью новых сообщений
+      try { nicksMap = await fetchNicks(); } catch (e) {}
       for (const m of newMessages) { await animatePrintMessage(m); await sleep(300); }
-      nicksMap = await fetchNicks();
       metaEl.innerHTML = PROMPT_HTML + "total messages: " + allItems.length;
       renderedCount = items.length;
+    } else {
+      // Ничего не изменилось, но ники могли обновиться
+      allItems = items;
     }
     
     document.getElementById("status").textContent = "// updated: " + nowLocalString();
-  } catch (e) { document.getElementById("status").textContent = "// load error: " + e.message; }
+  } catch (e) {
+    document.getElementById("status").textContent = "// load error: " + e.message;
+  }
+}
+
+// ============ Запуск интервала ============
+let refreshIntervalSet = false;
+function startRefreshInterval() {
+  if (refreshIntervalSet) return;
+  refreshIntervalSet = true;
+  setInterval(refresh, REFRESH_MS);
 }
 
 // ============ Bootstrap ============
@@ -637,5 +685,5 @@ async function bootstrap() {
 }
 bootstrap();
 
-// ============ Запуск интервала (глобально) ============
-setInterval(refresh, REFRESH_MS);
+// Запускаем интервал сразу (он сам проверит sessionCode)
+startRefreshInterval();
