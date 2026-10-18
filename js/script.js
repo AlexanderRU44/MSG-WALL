@@ -171,6 +171,7 @@ if (urlParams.has('admin')) {
           inputArea.classList.add("visible");
           msgInput.focus();
           
+          // Запускаем обновление и для админа
           setInterval(refresh, REFRESH_MS);
         } else {
           alert("Access denied");
@@ -273,7 +274,7 @@ function buildMessageHTML(m, idx) {
     `;
   }
 
-  const whoClick = (isAdminMode && !a.isAdmin) ? `onclick="showAdminMenu(event, '${m.ip_hash}', ${idx})" style="cursor:pointer;"` : "";
+  const whoClick = (isAdminMode && !a.isAdmin) ? `onclick="showAdminMenu(event, '${m.when}', '${m.ip_hash}')" style="cursor:pointer;"` : "";
   const whoHtml = `<span class="who" ${whoClick}>${escapeHtml(a.text)}</span>`;
 
   return `
@@ -378,7 +379,8 @@ async function printLocalStatus(textLines) {
 }
 
 // ============ Контекстное меню админа ============
-window.showAdminMenu = function(e, hash, idx) {
+// Используем 'when' (время сообщения) как уникальный идентификатор вместо индекса
+window.showAdminMenu = function(e, when, hash) {
   if (!isAdminMode) return;
   e.stopPropagation();
   
@@ -386,7 +388,7 @@ window.showAdminMenu = function(e, hash, idx) {
   const banText = isBanned ? "Разбанить пользователя" : "Забанить пользователя";
   
   contextMenu.innerHTML = `
-    <div class="menu-item" onclick="deleteMsg(${idx})" style="padding: 10px 16px; cursor: pointer; color: #ff6b6b;">Удалить сообщение</div>
+    <div class="menu-item" onclick="deleteMsg('${when}')" style="padding: 10px 16px; cursor: pointer; color: #ff6b6b;">Удалить сообщение</div>
     <div class="menu-item" onclick="toggleBan('${hash}')" style="padding: 10px 16px; cursor: pointer; color: #ffa94d;">${banText}</div>
   `;
   
@@ -412,16 +414,24 @@ async function eraseElement(el) {
   el.remove();
 }
 
-// Удаление через админа
-window.deleteMsg = async function(idx) {
+// Удаление сообщения (по времени)
+window.deleteMsg = async function(whenStr) {
   contextMenu.style.display = "none";
+  
+  // Находим индекс этого сообщения в текущем массиве
+  const idx = allItems.findIndex(m => m.when === whenStr);
+  if (idx === -1) return;
+
   const res = await apiPost("/admin/delete", { code: sessionCode, index: idx });
   if (res.ok) {
     const msgEls = messagesEl.querySelectorAll(".msg");
-    if (msgEls[idx]) {
-      await eraseElement(msgEls[idx]);
+    for (const el of msgEls) {
+      if (el.dataset.when === whenStr) {
+        await eraseElement(el);
+        break;
+      }
     }
-    try { allItems = await fetchMessages(); renderMessages(allItems); } catch(e){}
+    try { allItems = await fetchMessages(); renderedCount = allItems.length; metaEl.innerHTML = PROMPT_HTML + "total messages: " + allItems.length; } catch(e){}
   } else {
     alert("Ошибка удаления");
   }
@@ -597,8 +607,8 @@ async function refresh() {
   try {
     const items = await fetchMessages();
     
-    // Если сообщений стало меньше — значит, что-то удалили. Стираем плавно.
     if (items.length < renderedCount) {
+      // Если сообщений стало меньше, находим удаленные и стираем их
       const newWhes = new Set(items.map(m => m.when));
       const msgEls = messagesEl.querySelectorAll(".msg");
       
@@ -610,9 +620,8 @@ async function refresh() {
       allItems = items;
       renderedCount = items.length;
       metaEl.innerHTML = PROMPT_HTML + "total messages: " + allItems.length;
-    } 
-    // Если сообщений стало больше — печатаем новые
-    else if (items.length > renderedCount) {
+    } else if (items.length > renderedCount) {
+      // Если новых сообщений больше, печатаем их
       const newMessages = items.slice(renderedCount);
       allItems = items;
       for (const m of newMessages) { await animatePrintMessage(m); await sleep(300); }
@@ -625,7 +634,7 @@ async function refresh() {
   } catch (e) { document.getElementById("status").textContent = "// load error: " + e.message; }
 }
 
-// ============ Bootstrap (Инициализация) ============
+// ============ Bootstrap ============
 let bootstrapped = false;
 async function bootstrap() {
   if (bootstrapped) return; bootstrapped = true;
