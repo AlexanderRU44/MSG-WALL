@@ -109,12 +109,12 @@ let myHash = null;
 let myNick = null;
 let nicksMap = {};
 let bansMap = {};
-let renderedCount = 0;         // сколько сообщений сейчас в DOM
-let allItems = [];             // последний известный снимок с сервера
-let isPrinting = false;        // идёт анимация печати
-let isRefreshing = false;      // идёт цикл refresh (мьютекс)
-let isSending = false;         // идёт отправка
-let lastRenderedWhes = [];     // список when'ов в DOM, для проверки удаления
+let renderedCount = 0;
+let allItems = [];
+let isPrinting = false;
+let isRefreshing = false;
+let isSending = false;
+let lastRenderedWhes = [];
 
 // ============ DOM ============
 const sloganEl  = document.getElementById("slogan");
@@ -253,10 +253,16 @@ function renderSystemText(text) {
 function buildMessageHTML(m, idx) {
   if (m.system || m.admin) {
     const who = m.admin ? "@Administrator " : "";
+    // Клик по admin-сообщению тоже открывает меню (можно удалить своё).
+    // У system-сообщений ip_hash нет, но при клике hashArg будет "" — бан скрыт.
+    const hashArg = m.ip_hash || "";
+    const whoClick = (isAdminMode && m.admin)
+      ? `onclick="showAdminMenu(event, '${m.when}', '${hashArg}')" style="cursor:pointer;"`
+      : "";
     return `
       <div class="msg system" data-when="${m.when}">
         <span class="when">${escapeHtml(formatLocalFromUTC(m.when || ""))}</span>
-        <span class="text">${who}${renderSystemText(m.text || "")}</span>
+        <span class="text" ${whoClick}>${who}${renderSystemText(m.text || "")}</span>
       </div>
     `;
   }
@@ -278,7 +284,10 @@ function buildMessageHTML(m, idx) {
     `;
   }
 
-  const whoClick = (isAdminMode && !a.isAdmin) ? `onclick="showAdminMenu(event, '${m.when}', '${m.ip_hash}')" style="cursor:pointer;"` : "";
+  const hashArg = m.ip_hash || "";
+  const whoClick = (isAdminMode)
+    ? `onclick="showAdminMenu(event, '${m.when}', '${hashArg}')" style="cursor:pointer;"`
+    : "";
   const whoHtml = `<span class="who" ${whoClick}>${escapeHtml(a.text)}</span>`;
 
   return `
@@ -291,7 +300,6 @@ function buildMessageHTML(m, idx) {
   `;
 }
 
-// Печать одного сообщения. Возвращает true, если напечатала.
 async function animatePrintMessage(m) {
   if (isPrinting) return false;
   isPrinting = true;
@@ -312,6 +320,11 @@ async function animatePrintMessage(m) {
         await sleep(rand(15, 40));
       }
       textEl.innerHTML = renderSystemText(fullText);
+      // Разрешаем клик по admin-сообщению после печати
+      if (isAdminMode && m.admin) {
+        textEl.setAttribute("onclick", `showAdminMenu(event, '${m.when}', '')`);
+        textEl.style.cursor = "pointer";
+      }
     } else {
       const c = colorForHash(m.ip_hash);
       const a = authorLabelFor(m);
@@ -335,12 +348,18 @@ async function animatePrintMessage(m) {
       div.style.gap = "4px";
       div.innerHTML = `
         <span class="when">${escapeHtml(when)}</span>
-        <span class="who">${escapeHtml(a.text)}</span>
+        <span class="who"></span>
         ${replyHtml}
         <span class="text"></span>
       `;
       messagesEl.appendChild(div);
       scrollToBottom();
+      const whoEl = div.querySelector(".who");
+      whoEl.textContent = a.text;
+      if (isAdminMode) {
+        whoEl.setAttribute("onclick", `showAdminMenu(event, '${m.when}', '${m.ip_hash || ""}')`);
+        whoEl.style.cursor = "pointer";
+      }
       const textEl = div.querySelector(".text");
       const text = m.text || "";
       for (let i = 0; i < text.length; i++) {
@@ -355,7 +374,6 @@ async function animatePrintMessage(m) {
   }
 }
 
-// Полная перерисовка. Возвращает true, если DOM обновлён.
 function renderMessages(items) {
   if (isPrinting) return false;
   if (items.length === 0) {
@@ -371,10 +389,9 @@ function renderMessages(items) {
   return true;
 }
 
-// Полная перерисовка с учётом isPrinting: ждёт, пока печать завершится.
 async function fullRender(items) {
   let tries = 0;
-  while (isPrinting && tries < 100) {
+  while (isPrinting && tries < 200) {
     await sleep(100);
     tries++;
   }
@@ -408,13 +425,22 @@ window.showAdminMenu = function(e, when, hash) {
   if (!isAdminMode) return;
   e.stopPropagation();
 
-  const isBanned = bansMap[hash] === true;
-  const banText = isBanned ? "Разбанить пользователя" : "Забанить пользователя";
+  const items = [];
+  // Удалить можно всегда — и своё, и чужое
+  items.push(
+    `<div class="menu-item" onclick="deleteMsg('${when}')" style="padding: 10px 16px; cursor: pointer; color: #ff6b6b;">Удалить сообщение</div>`
+  );
 
-  contextMenu.innerHTML = `
-    <div class="menu-item" onclick="deleteMsg('${when}')" style="padding: 10px 16px; cursor: pointer; color: #ff6b6b;">Удалить сообщение</div>
-    <div class="menu-item" onclick="toggleBan('${hash}')" style="padding: 10px 16px; cursor: pointer; color: #ffa94d;">${banText}</div>
-  `;
+  // Бан — только если есть чужой hash
+  if (hash && hash !== myHash) {
+    const isBanned = bansMap[hash] === true;
+    const banText = isBanned ? "Разбанить пользователя" : "Забанить пользователя";
+    items.push(
+      `<div class="menu-item" onclick="toggleBan('${hash}')" style="padding: 10px 16px; cursor: pointer; color: #ffa94d;">${banText}</div>`
+    );
+  }
+
+  contextMenu.innerHTML = items.join("");
 
   const rect = e.target.getBoundingClientRect();
   contextMenu.style.display = "block";
@@ -437,7 +463,6 @@ async function eraseElement(el) {
   if (el.parentNode) el.parentNode.removeChild(el);
 }
 
-// Пересчитывает renderedCount и lastRenderedWhes из DOM
 function syncRenderedFromDOM() {
   const els = messagesEl.querySelectorAll(".msg:not(.local-status)");
   renderedCount = els.length;
@@ -446,11 +471,20 @@ function syncRenderedFromDOM() {
 
 window.deleteMsg = async function(whenStr) {
   contextMenu.style.display = "none";
-  const idx = allItems.findIndex(m => m.when === whenStr);
-  if (idx === -1) return;
 
-  const res = await apiPost("/admin/delete", { code: sessionCode, index: idx });
-  if (res.ok) {
+  // Всегда подтягиваем свежий список — allItems мог не содержать
+  // только что пришедшее сообщение (refresh ещё не сработал).
+  try {
+    allItems = await fetchMessages();
+  } catch (e) {
+    alert("Не удалось получить список сообщений");
+    return;
+  }
+
+  const exists = allItems.some(m => m.when === whenStr);
+
+  if (!exists) {
+    // На сервере уже нет — убираем из DOM и синхронизируем
     const msgEls = messagesEl.querySelectorAll(".msg");
     for (const el of msgEls) {
       if (el.dataset.when === whenStr) {
@@ -458,18 +492,37 @@ window.deleteMsg = async function(whenStr) {
         break;
       }
     }
-    try {
-      allItems = await fetchMessages();
-      await fullRender(allItems);
-      metaEl.innerHTML = PROMPT_HTML + "total messages: " + allItems.length;
-    } catch(e){}
-  } else {
-    alert("Ошибка удаления");
+    syncRenderedFromDOM();
+    metaEl.innerHTML = PROMPT_HTML + "total messages: " + allItems.length;
+    return;
   }
+
+  // Удаляем по when — надёжнее индекса (индекс "съезжает")
+  const res = await apiPost("/admin/delete", { code: sessionCode, when: whenStr });
+  if (!res.ok) {
+    alert("Ошибка удаления: " + (res.reason || "unknown"));
+    return;
+  }
+
+  const msgEls = messagesEl.querySelectorAll(".msg");
+  for (const el of msgEls) {
+    if (el.dataset.when === whenStr) {
+      await eraseElement(el);
+      break;
+    }
+  }
+
+  try { allItems = await fetchMessages(); } catch (e) {}
+  syncRenderedFromDOM();
+  metaEl.innerHTML = PROMPT_HTML + "total messages: " + allItems.length;
 };
 
 window.toggleBan = async function(hash) {
   contextMenu.style.display = "none";
+  if (hash === myHash) {
+    alert("Нельзя забанить самого себя");
+    return;
+  }
   const isBanned = bansMap[hash] === true;
   const endpoint = isBanned ? "/admin/unban" : "/admin/ban";
 
@@ -482,7 +535,7 @@ window.toggleBan = async function(hash) {
       await fullRender(allItems);
     } catch(e){}
   } else {
-    alert("Ошибка");
+    alert("Ошибка: " + (res.reason || "unknown"));
   }
 };
 
@@ -656,7 +709,6 @@ async function sendMessage() {
 
   try {
     const newItems = await fetchMessages();
-    // Печатаем только то, чего ещё нет в DOM
     const domWhes = new Set(lastRenderedWhes);
     const toPrint = newItems.filter(m => !domWhes.has(m.when));
     allItems = newItems;
@@ -666,9 +718,7 @@ async function sendMessage() {
     }
     syncRenderedFromDOM();
     metaEl.innerHTML = PROMPT_HTML + "total messages: " + allItems.length;
-  } catch (e) {
-    // если fetch упал — попробуем ещё раз через refresh
-  }
+  } catch (e) {}
 
   isSending = false;
   sendBtn.disabled = false;
@@ -678,8 +728,8 @@ if (sendBtn) sendBtn.addEventListener("click", sendMessage);
 // ============ Periodic refresh ============
 async function refresh() {
   if (!sessionCode) return;
-  if (isRefreshing) return;   // мьютекс
-  if (isSending) return;      // не мешаем отправке
+  if (isRefreshing) return;
+  if (isSending) return;
   isRefreshing = true;
   try {
     const items = await fetchMessages();
@@ -703,7 +753,6 @@ async function refresh() {
       const domWhes = new Set(lastRenderedWhes);
       const toPrint = items.filter(m => !domWhes.has(m.when));
       allItems = items;
-      // Обновляем ники перед печатью
       try { nicksMap = await fetchNicks(); } catch (e) {}
       for (const m of toPrint) {
         await animatePrintMessage(m);
