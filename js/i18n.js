@@ -27,13 +27,13 @@ const TRANSLATIONS = {
     "cmd.help.desc": "show available commands",
     "cmd.online.desc": "show online users",
     "cmd.lang.desc": "change language (/lang en|ru)",
-    "cmd.theme.desc": "change theme (/theme light|dark)",
+    "cmd.theme.desc": "change theme (/theme auto|light|dark)",
 
     "status.cmd.help_header": "Commands:",
     "status.cmd.nick_usage": "/nick <name> — change nick",
     "status.cmd.online_usage": "/online — online users",
     "status.cmd.lang_usage": "/lang en|ru — change language",
-    "status.cmd.theme_usage": "/theme light|dark — change theme",
+    "status.cmd.theme_usage": "/theme auto|light|dark — change theme",
     "status.cmd.checking": "> checking…",
     "status.cmd.online_count": "> online: {n}",
     "status.cmd.nick_usage_error": "error: usage /nick <name>",
@@ -47,8 +47,8 @@ const TRANSLATIONS = {
     "status.lang.unknown": "> unknown language: {lang}. available: {list}",
     "status.lang.changed": "> language changed to: {lang}",
 
-    "status.theme.usage": "> usage: /theme light|dark",
-    "status.theme.unknown": "> unknown theme: {theme}. available: light, dark",
+    "status.theme.usage": "> usage: /theme auto|light|dark",
+    "status.theme.unknown": "> unknown theme: {theme}. available: auto, light, dark",
     "status.theme.changed": "> theme changed to: {theme}",
 
     "admin.menu.delete": "Delete message",
@@ -111,13 +111,13 @@ const TRANSLATIONS = {
     "cmd.help.desc": "показать доступные команды",
     "cmd.online.desc": "показать пользователей онлайн",
     "cmd.lang.desc": "сменить язык (/lang ru|en)",
-    "cmd.theme.desc": "сменить тему (/theme light|dark)",
+    "cmd.theme.desc": "сменить тему (/theme auto|light|dark)",
 
     "status.cmd.help_header": "Команды:",
     "status.cmd.nick_usage": "/nick <имя> — сменить ник",
     "status.cmd.online_usage": "/online — пользователи онлайн",
     "status.cmd.lang_usage": "/lang ru|en — сменить язык",
-    "status.cmd.theme_usage": "/theme light|dark — сменить тему",
+    "status.cmd.theme_usage": "/theme auto|light|dark — сменить тему",
     "status.cmd.checking": "> проверка…",
     "status.cmd.online_count": "> онлайн: {n}",
     "status.cmd.nick_usage_error": "ошибка: использование /nick <имя>",
@@ -131,8 +131,8 @@ const TRANSLATIONS = {
     "status.lang.unknown": "> неизвестный язык: {lang}. доступны: {list}",
     "status.lang.changed": "> язык изменён на: {lang}",
 
-    "status.theme.usage": "> использование: /theme light|dark",
-    "status.theme.unknown": "> неизвестная тема: {theme}. доступны: light, dark",
+    "status.theme.usage": "> использование: /theme auto|light|dark",
+    "status.theme.unknown": "> неизвестная тема: {theme}. доступны: auto, light, dark",
     "status.theme.changed": "> тема изменена на: {theme}",
 
     "admin.menu.delete": "Удалить сообщение",

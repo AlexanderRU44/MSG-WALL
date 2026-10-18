@@ -9,13 +9,20 @@
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#0a0a0a">
 <link rel="stylesheet" href="assets/style.css">
-<!-- Скрипт для предотвращения "вспышки" белого/чёрного экрана при загрузке -->
 <script>
+  // Предотвращение "вспышки" неправильной темы при загрузке
   (function() {
-    const savedTheme = localStorage.getItem("msgwall.theme");
-    if (savedTheme === "light" || savedTheme === "dark") {
-      document.documentElement.setAttribute("data-theme", savedTheme);
+    let theme = "auto";
+    try {
+      const saved = localStorage.getItem("msgwall.theme");
+      if (saved === "light" || saved === "dark" || saved === "auto") theme = saved;
+    } catch (e) {}
+    
+    let actual = theme;
+    if (theme === "auto") {
+      actual = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? "light" : "dark";
     }
+    document.documentElement.setAttribute("data-theme", actual);
   })();
 </script>
 </head>

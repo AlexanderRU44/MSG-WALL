@@ -121,7 +121,7 @@ let isPrinting = false;
 let isRefreshing = false;
 let isSending = false;
 let lastRenderedWhes = [];
-let currentTheme = "dark";
+let currentTheme = "auto";
 
 // ============ DOM ============
 const sloganEl  = document.getElementById("slogan");
@@ -144,35 +144,49 @@ document.body.appendChild(contextMenu);
 document.addEventListener("click", () => { contextMenu.style.display = "none"; });
 
 // ============ Тема ============
+const mediaQuery = window.matchMedia('(prefers-color-scheme: light)');
+
+function getSystemTheme() {
+  return mediaQuery.matches ? "light" : "dark";
+}
+
 function detectTheme() {
   try {
     const saved = localStorage.getItem("msgwall.theme");
-    if (saved === "light" || saved === "dark") return saved;
+    if (saved === "light" || saved === "dark" || saved === "auto") return saved;
   } catch (e) {}
-  // Проверяем системные настройки браузера
-  if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
-    return "light";
+  return "auto";
+}
+
+function applyTheme(theme) {
+  currentTheme = theme;
+  const actualTheme = theme === "auto" ? getSystemTheme() : theme;
+  
+  document.documentElement.setAttribute("data-theme", actualTheme);
+  
+  const metaTheme = document.querySelector('meta[name="theme-color"]');
+  if (metaTheme) {
+    metaTheme.setAttribute("content", actualTheme === "light" ? "#f5f5f5" : "#0a0a0a");
   }
-  return "dark";
 }
 
 function setTheme(theme) {
-  if (theme !== "light" && theme !== "dark") return false;
-  currentTheme = theme;
-  document.documentElement.setAttribute("data-theme", theme);
+  if (theme !== "auto" && theme !== "light" && theme !== "dark") return false;
   try { localStorage.setItem("msgwall.theme", theme); } catch (e) {}
-  
-  // Обновим meta theme-color для мобильных браузеров
-  const metaTheme = document.querySelector('meta[name="theme-color"]');
-  if (metaTheme) {
-    metaTheme.setAttribute("content", theme === "light" ? "#f5f5f5" : "#0a0a0a");
-  }
+  applyTheme(theme);
   return true;
 }
 
-// Инициализация темы (скрипт в head уже мог применить её, но продублируем)
+// Слушаем изменение системной темы
+mediaQuery.addEventListener("change", () => {
+  if (currentTheme === "auto") {
+    applyTheme("auto");
+  }
+});
+
+// Инициализация темы
 currentTheme = detectTheme();
-setTheme(currentTheme);
+applyTheme(currentTheme);
 
 // Обновление слогана/meta при смене языка
 document.addEventListener("langchange", () => {
