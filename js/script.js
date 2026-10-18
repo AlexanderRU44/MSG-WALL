@@ -139,6 +139,11 @@ document.addEventListener("click", () => { contextMenu.style.display = "none"; }
 const urlParams = new URLSearchParams(window.location.search);
 if (urlParams.has('admin')) {
   if (hiddenInput) hiddenInput.style.display = "none";
+  
+  // Принудительно скрываем цифровую клавиатуру и квадратики
+  if (digitsEl) digitsEl.style.display = "none";
+  if (keypadEl) keypadEl.style.display = "none";
+
   const adminArea = document.getElementById("admin-input-area");
   if (adminArea) {
     adminArea.style.display = "block";
