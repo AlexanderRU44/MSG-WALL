@@ -64,23 +64,6 @@ body::before {
     var(--crt-line) 4px
   );
   mix-blend-mode: multiply;
-}
-body::after {
-  content: "";
-  position: fixed;
-  left: 0; right: 0;
-  height: 100px; top: -120px;
-  pointer-events: none;
-  z-index: 101;
-  background: linear-gradient(
-    to bottom,
-    rgba(255,255,255,0) 0%,
-    var(--crt-scan) 50%,
-    rgba(255,255,255,0) 100%
-  );
-  animation: scan 8s linear infinite;
-}
-@keyframes scan { 0% { top: -120px; } 100% { top: 100vh; } }
 
 .vignette {
   position: fixed; inset: 0; pointer-events: none; z-index: 99;
