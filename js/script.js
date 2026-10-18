@@ -171,7 +171,6 @@ if (urlParams.has('admin')) {
           inputArea.classList.add("visible");
           msgInput.focus();
           
-          // ВАЖНО: Запускаем обновление и для админа
           setInterval(refresh, REFRESH_MS);
         } else {
           alert("Access denied");
@@ -250,7 +249,7 @@ function buildMessageHTML(m, idx) {
   if (m.system || m.admin) {
     const who = m.admin ? "@Administrator " : "";
     return `
-      <div class="msg system">
+      <div class="msg system" data-when="${m.when}">
         <span class="when">${escapeHtml(formatLocalFromUTC(m.when || ""))}</span>
         <span class="text">${who}${renderSystemText(m.text || "")}</span>
       </div>
@@ -278,7 +277,7 @@ function buildMessageHTML(m, idx) {
   const whoHtml = `<span class="who" ${whoClick}>${escapeHtml(a.text)}</span>`;
 
   return `
-    <div class="msg" style="--accent:${c.accent}; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px;">
+    <div class="msg" data-when="${m.when}" style="--accent:${c.accent}; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px;">
       <span class="when">${escapeHtml(when)}</span>
       ${whoHtml}
       ${replyHtml}
@@ -293,6 +292,7 @@ async function animatePrintMessage(m) {
   if (m.system || m.admin) {
     const who = m.admin ? "@Administrator " : "";
     div.className = "msg system";
+    div.dataset.when = m.when;
     div.innerHTML = `<span class="when">${escapeHtml(formatLocalFromUTC(m.when || ""))}</span> <span class="text"></span>`;
     messagesEl.appendChild(div);
     scrollToBottom();
@@ -319,6 +319,7 @@ async function animatePrintMessage(m) {
     }
     
     div.className = "msg";
+    div.dataset.when = m.when;
     div.style.setProperty("--accent", c.accent);
     div.style.display = "flex";
     div.style.flexWrap = "wrap";
@@ -395,24 +396,30 @@ window.showAdminMenu = function(e, hash, idx) {
   contextMenu.style.top = (rect.bottom + 10) + "px";
 };
 
+// ==== Анимация стирания ====
+async function eraseElement(el) {
+  const textEl = el.querySelector(".text");
+  if (textEl) {
+    const fullText = textEl.textContent;
+    for (let i = fullText.length; i > 0; i--) {
+      textEl.textContent = fullText.slice(0, i - 1);
+      await sleep(10);
+    }
+  }
+  el.style.transition = "opacity 0.3s";
+  el.style.opacity = "0";
+  await sleep(300);
+  el.remove();
+}
+
+// Удаление через админа
 window.deleteMsg = async function(idx) {
   contextMenu.style.display = "none";
   const res = await apiPost("/admin/delete", { code: sessionCode, index: idx });
   if (res.ok) {
     const msgEls = messagesEl.querySelectorAll(".msg");
     if (msgEls[idx]) {
-      const el = msgEls[idx];
-      const textEl = el.querySelector(".text");
-      if (textEl) {
-        const fullText = textEl.textContent;
-        for (let i = fullText.length; i > 0; i--) {
-          textEl.textContent = fullText.slice(0, i - 1);
-          await sleep(10);
-        }
-      }
-      el.style.transition = "opacity 0.3s";
-      el.style.opacity = "0";
-      await sleep(300);
+      await eraseElement(msgEls[idx]);
     }
     try { allItems = await fetchMessages(); renderMessages(allItems); } catch(e){}
   } else {
@@ -473,7 +480,6 @@ async function submitCode() {
   if (msgInput) msgInput.focus();
   setTimeout(adjustHeight, 100);
   
-  // ВАЖНО: Запускаем обновление и для обычного входа
   setInterval(refresh, REFRESH_MS);
 }
 
@@ -590,11 +596,31 @@ async function refresh() {
   if (!unlocked) return; if (isPrinting) return;
   try {
     const items = await fetchMessages();
-    if (items.length !== renderedCount) {
-      const newMessages = items.slice(renderedCount); allItems = items;
+    
+    // Если сообщений стало меньше — значит, что-то удалили. Стираем плавно.
+    if (items.length < renderedCount) {
+      const newWhes = new Set(items.map(m => m.when));
+      const msgEls = messagesEl.querySelectorAll(".msg");
+      
+      for (const el of msgEls) {
+        if (!newWhes.has(el.dataset.when)) {
+          await eraseElement(el);
+        }
+      }
+      allItems = items;
+      renderedCount = items.length;
+      metaEl.innerHTML = PROMPT_HTML + "total messages: " + allItems.length;
+    } 
+    // Если сообщений стало больше — печатаем новые
+    else if (items.length > renderedCount) {
+      const newMessages = items.slice(renderedCount);
+      allItems = items;
       for (const m of newMessages) { await animatePrintMessage(m); await sleep(300); }
-      nicksMap = await fetchNicks(); metaEl.innerHTML = PROMPT_HTML + "total messages: " + allItems.length; renderedCount = items.length;
+      nicksMap = await fetchNicks();
+      metaEl.innerHTML = PROMPT_HTML + "total messages: " + allItems.length;
+      renderedCount = items.length;
     }
+    
     document.getElementById("status").textContent = "// updated: " + nowLocalString();
   } catch (e) { document.getElementById("status").textContent = "// load error: " + e.message; }
 }
