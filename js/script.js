@@ -250,19 +250,33 @@ function renderSystemText(text) {
   });
 }
 
+// Нормализация hash: null/undefined/"undefined"/"null"/"" → ""
+function normalizeHash(h) {
+  if (h === null || h === undefined) return "";
+  const s = String(h);
+  if (s === "undefined" || s === "null" || s === "") return "";
+  return s;
+}
+
+// Возвращает onclick-атрибут для клика по нику в админ-режиме.
+// Для admin-сообщений (m.admin === true) hash пустой — бан скроется.
+function makeWhoClickAttr(m) {
+  if (!isAdminMode) return "";
+  const hashArg = m.admin ? "" : normalizeHash(m.ip_hash);
+  // when в кавычках — экранируем одинарные кавычки на всякий случай
+  const safeWhen = String(m.when || "").replace(/'/g, "\\'");
+  const safeHash = hashArg.replace(/'/g, "\\'");
+  return `onclick="showAdminMenu(event, '${safeWhen}', '${safeHash}')" style="cursor:pointer;"`;
+}
+
 function buildMessageHTML(m, idx) {
   if (m.system || m.admin) {
     const who = m.admin ? "@Administrator " : "";
-    // Клик по admin-сообщению тоже открывает меню (можно удалить своё).
-    // У system-сообщений ip_hash нет, но при клике hashArg будет "" — бан скрыт.
-    const hashArg = m.ip_hash || "";
-    const whoClick = (isAdminMode && m.admin)
-      ? `onclick="showAdminMenu(event, '${m.when}', '${hashArg}')" style="cursor:pointer;"`
-      : "";
+    const clickAttr = m.admin ? makeWhoClickAttr(m) : "";
     return `
       <div class="msg system" data-when="${m.when}">
         <span class="when">${escapeHtml(formatLocalFromUTC(m.when || ""))}</span>
-        <span class="text" ${whoClick}>${who}${renderSystemText(m.text || "")}</span>
+        <span class="text" ${clickAttr}>${who}${renderSystemText(m.text || "")}</span>
       </div>
     `;
   }
@@ -284,11 +298,8 @@ function buildMessageHTML(m, idx) {
     `;
   }
 
-  const hashArg = m.ip_hash || "";
-  const whoClick = (isAdminMode)
-    ? `onclick="showAdminMenu(event, '${m.when}', '${hashArg}')" style="cursor:pointer;"`
-    : "";
-  const whoHtml = `<span class="who" ${whoClick}>${escapeHtml(a.text)}</span>`;
+  const clickAttr = makeWhoClickAttr(m);
+  const whoHtml = `<span class="who" ${clickAttr}>${escapeHtml(a.text)}</span>`;
 
   return `
     <div class="msg" data-when="${m.when}" style="--accent:${c.accent}; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px;">
@@ -320,9 +331,9 @@ async function animatePrintMessage(m) {
         await sleep(rand(15, 40));
       }
       textEl.innerHTML = renderSystemText(fullText);
-      // Разрешаем клик по admin-сообщению после печати
       if (isAdminMode && m.admin) {
-        textEl.setAttribute("onclick", `showAdminMenu(event, '${m.when}', '')`);
+        const safeWhen = String(m.when || "").replace(/'/g, "\\'");
+        textEl.setAttribute("onclick", `showAdminMenu(event, '${safeWhen}', '')`);
         textEl.style.cursor = "pointer";
       }
     } else {
@@ -357,7 +368,10 @@ async function animatePrintMessage(m) {
       const whoEl = div.querySelector(".who");
       whoEl.textContent = a.text;
       if (isAdminMode) {
-        whoEl.setAttribute("onclick", `showAdminMenu(event, '${m.when}', '${m.ip_hash || ""}')`);
+        const hashArg = normalizeHash(m.ip_hash);
+        const safeWhen = String(m.when || "").replace(/'/g, "\\'");
+        const safeHash = hashArg.replace(/'/g, "\\'");
+        whoEl.setAttribute("onclick", `showAdminMenu(event, '${safeWhen}', '${safeHash}')`);
         whoEl.style.cursor = "pointer";
       }
       const textEl = div.querySelector(".text");
@@ -423,20 +437,22 @@ async function printLocalStatus(textLines) {
 // ============ Контекстное меню админа ============
 window.showAdminMenu = function(e, when, hash) {
   if (!isAdminMode) return;
-  e.stopPropagation();
+  if (e && e.stopPropagation) e.stopPropagation();
 
+  const h = normalizeHash(hash);
   const items = [];
-  // Удалить можно всегда — и своё, и чужое
+
+  // Удалить — можно всегда (и своё, и чужое)
   items.push(
-    `<div class="menu-item" onclick="deleteMsg('${when}')" style="padding: 10px 16px; cursor: pointer; color: #ff6b6b;">Удалить сообщение</div>`
+    `<div class="menu-item" onclick="deleteMsg('${String(when).replace(/'/g, "\\'")}')" style="padding: 10px 16px; cursor: pointer; color: #ff6b6b;">Удалить сообщение</div>`
   );
 
-  // Бан — только если есть чужой hash
-  if (hash && hash !== myHash) {
-    const isBanned = bansMap[hash] === true;
+  // Бан/разбан — только если есть непустой чужой hash
+  if (h && h !== myHash) {
+    const isBanned = bansMap[h] === true;
     const banText = isBanned ? "Разбанить пользователя" : "Забанить пользователя";
     items.push(
-      `<div class="menu-item" onclick="toggleBan('${hash}')" style="padding: 10px 16px; cursor: pointer; color: #ffa94d;">${banText}</div>`
+      `<div class="menu-item" onclick="toggleBan('${h.replace(/'/g, "\\'")}')" style="padding: 10px 16px; cursor: pointer; color: #ffa94d;">${banText}</div>`
     );
   }
 
@@ -497,7 +513,7 @@ window.deleteMsg = async function(whenStr) {
     return;
   }
 
-  // Удаляем по when — надёжнее индекса (индекс "съезжает")
+  // Удаляем по when — надёжнее индекса (индекс "съезжает" при параллельных удалениях)
   const res = await apiPost("/admin/delete", { code: sessionCode, when: whenStr });
   if (!res.ok) {
     alert("Ошибка удаления: " + (res.reason || "unknown"));
@@ -519,16 +535,23 @@ window.deleteMsg = async function(whenStr) {
 
 window.toggleBan = async function(hash) {
   contextMenu.style.display = "none";
-  if (hash === myHash) {
+
+  const h = normalizeHash(hash);
+  if (!h) {
+    alert("Нет hash пользователя — невозможно забанить");
+    return;
+  }
+  if (h === myHash) {
     alert("Нельзя забанить самого себя");
     return;
   }
-  const isBanned = bansMap[hash] === true;
+
+  const isBanned = bansMap[h] === true;
   const endpoint = isBanned ? "/admin/unban" : "/admin/ban";
 
-  const res = await apiPost(endpoint, { code: sessionCode, hash: hash });
+  const res = await apiPost(endpoint, { code: sessionCode, hash: h });
   if (res.ok) {
-    bansMap[hash] = !isBanned;
+    bansMap[h] = !isBanned;
     alert(isBanned ? "Пользователь разбанен" : "Пользователь забанен");
     try {
       allItems = await fetchMessages();
