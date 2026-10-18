@@ -593,7 +593,9 @@ if (sendBtn) sendBtn.addEventListener("click", sendMessage);
 
 // ============ Periodic refresh ============
 async function refresh() {
-  if (!unlocked) return; if (isPrinting) return;
+  if (!unlocked) return; 
+  // Убрали проверку isPrinting, чтобы обновление не застревало
+  
   try {
     const items = await fetchMessages();
     
@@ -622,14 +624,6 @@ async function refresh() {
   } catch (e) { document.getElementById("status").textContent = "// load error: " + e.message; }
 }
 
-// ============ Запуск интервала (для всех) ============
-let refreshIntervalSet = false;
-function startRefreshInterval() {
-  if (refreshIntervalSet) return;
-  refreshIntervalSet = true;
-  setInterval(refresh, REFRESH_MS);
-}
-
 // ============ Bootstrap ============
 let bootstrapped = false;
 async function bootstrap() {
@@ -643,5 +637,5 @@ async function bootstrap() {
 }
 bootstrap();
 
-// Запускаем интервал сразу (он сам проверит unlocked)
-startRefreshInterval();
+// ============ Запуск интервала (глобально) ============
+setInterval(refresh, REFRESH_MS);
