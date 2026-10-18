@@ -121,6 +121,7 @@ let isPrinting = false;
 let isRefreshing = false;
 let isSending = false;
 let lastRenderedWhes = [];
+let currentTheme = "dark";
 
 // ============ DOM ============
 const sloganEl  = document.getElementById("slogan");
@@ -138,9 +139,40 @@ const hiddenInput = document.getElementById("hidden-input");
 
 const contextMenu = document.createElement("div");
 contextMenu.id = "admin-context-menu";
-contextMenu.style.cssText = "display: none; position: fixed; background: #141414; border: 1px solid #333; border-radius: 4px; box-shadow: 0 4px 12px rgba(0,0,0,0.8); z-index: 1000; padding: 8px 0; min-width: 150px;";
+contextMenu.style.cssText = "display: none; position: fixed; background: var(--bg-input); border: 1px solid var(--border); border-radius: 4px; box-shadow: 0 4px 12px rgba(0,0,0,0.8); z-index: 1000; padding: 8px 0; min-width: 150px;";
 document.body.appendChild(contextMenu);
 document.addEventListener("click", () => { contextMenu.style.display = "none"; });
+
+// ============ Тема ============
+function detectTheme() {
+  try {
+    const saved = localStorage.getItem("msgwall.theme");
+    if (saved === "light" || saved === "dark") return saved;
+  } catch (e) {}
+  // Проверяем системные настройки браузера
+  if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
+    return "light";
+  }
+  return "dark";
+}
+
+function setTheme(theme) {
+  if (theme !== "light" && theme !== "dark") return false;
+  currentTheme = theme;
+  document.documentElement.setAttribute("data-theme", theme);
+  try { localStorage.setItem("msgwall.theme", theme); } catch (e) {}
+  
+  // Обновим meta theme-color для мобильных браузеров
+  const metaTheme = document.querySelector('meta[name="theme-color"]');
+  if (metaTheme) {
+    metaTheme.setAttribute("content", theme === "light" ? "#f5f5f5" : "#0a0a0a");
+  }
+  return true;
+}
+
+// Инициализация темы (скрипт в head уже мог применить её, но продублируем)
+currentTheme = detectTheme();
+setTheme(currentTheme);
 
 // Обновление слогана/meta при смене языка
 document.addEventListener("langchange", () => {
@@ -428,7 +460,7 @@ async function fullRender(items) {
 async function printLocalStatus(textLines) {
   const div = document.createElement("div");
   div.className = "msg local-status";
-  div.innerHTML = `<span class="text" style="color:#888888; white-space: pre-wrap;"></span>`;
+  div.innerHTML = `<span class="text" style="color: var(--text-dim); white-space: pre-wrap;"></span>`;
   messagesEl.appendChild(div);
   scrollToBottom();
   const textEl = div.querySelector(".text");
@@ -626,7 +658,8 @@ const COMMANDS = [
   { cmd: "nick", descKey: "cmd.nick.desc" },
   { cmd: "help", descKey: "cmd.help.desc" },
   { cmd: "online", descKey: "cmd.online.desc" },
-  { cmd: "lang", descKey: "cmd.lang.desc" }
+  { cmd: "lang", descKey: "cmd.lang.desc" },
+  { cmd: "theme", descKey: "cmd.theme.desc" }
 ];
 
 if (msgInput) {
@@ -706,13 +739,31 @@ async function sendMessage() {
       return;
     }
 
+    // --- /theme | /тема ---
+    if (cmd === "/theme" || cmd === "/тема") {
+      msgInput.value = "";
+      if (!arg) {
+        printLocalStatus([t("status.theme.usage")]);
+        return;
+      }
+      const target = arg.toLowerCase();
+      const ok = setTheme(target);
+      if (!ok) {
+        printLocalStatus([t("status.theme.unknown", { theme: target })]);
+        return;
+      }
+      printLocalStatus([t("status.theme.changed", { theme: target })]);
+      return;
+    }
+
     if (cmd === "/help") {
       msgInput.value = "";
       printLocalStatus([
         t("status.cmd.help_header"),
         t("status.cmd.nick_usage"),
         t("status.cmd.online_usage"),
-        t("status.cmd.lang_usage")
+        t("status.cmd.lang_usage"),
+        t("status.cmd.theme_usage")
       ]);
       return;
     }
