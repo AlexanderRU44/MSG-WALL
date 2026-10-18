@@ -14,20 +14,25 @@
   
   <div class="app-container" id="app-container">
     <header>
-      <h1>Msg Wall</h1>
+      <h1 data-i18n="app.title">Msg Wall</h1>
       <div class="slogan" id="slogan"></div>
       <div class="meta" id="meta"></div>
+
+      <!-- Переключатель языка -->
+      <div class="lang-switch" aria-label="Language">
+        <button type="button" data-lang-btn="en" title="English">EN</button>
+        <span class="lang-sep">/</span>
+        <button type="button" data-lang-btn="ru" title="Русский">RU</button>
+      </div>
     </header>
 
     <div id="loading"></div>
 
     <div id="gate">
-      <div class="hint" id="gate-hint">enter today's code</div>
+      <div class="hint" id="gate-hint" data-i18n="gate.enter_code">enter today's code</div>
       
-      <!-- Скрытое поле для перехвата вставки (не вызывает клавиатуру) -->
       <textarea id="hidden-input" readonly inputmode="none" style="position: absolute; opacity: 0; top: 0; left: 0; width: 100%; height: 100%; z-index: -1; pointer-events: none;"></textarea>
 
-      <!-- Обычный ввод (4 цифры) -->
       <div class="digits" id="digits" style="position: relative;">
         <div class="digit active"></div>
         <div class="digit"></div>
@@ -35,9 +40,8 @@
         <div class="digit"></div>
       </div>
 
-      <!-- Админ-ввод (появится, если ?admin) -->
       <div id="admin-input-area" style="display: none; margin-top: 20px; text-align: center;">
-        <input type="password" id="admin-code-input" placeholder="enter admin code" style="width: 80%; max-width: 300px; background: #141414; border: 1px solid #333; color: #fff; padding: 12px; text-align: center; font-family: 'Courier New', monospace; font-size: 16px; outline: none; border-radius: 4px;">
+        <input type="password" id="admin-code-input" placeholder="enter admin code" data-i18n-placeholder="gate.admin_code_placeholder" style="width: 80%; max-width: 300px; background: #141414; border: 1px solid #333; color: #fff; padding: 12px; text-align: center; font-family: 'Courier New', monospace; font-size: 16px; outline: none; border-radius: 4px;">
       </div>
 
       <div class="keypad" id="keypad">
@@ -50,9 +54,9 @@
         <button data-key="7">7</button>
         <button data-key="8">8</button>
         <button data-key="9">9</button>
-        <button class="action" data-key="clear">CLR</button>
+        <button class="action" data-key="clear" data-i18n="gate.keypad.clear">CLR</button>
         <button data-key="0">0</button>
-        <button class="action" data-key="back">←</button>
+        <button class="action" data-key="back" data-i18n="gate.keypad.back">←</button>
       </div>
     </div>
 
@@ -61,8 +65,8 @@
     <div id="input-area">
       <div class="input-row">
         <span class="input-prompt">&gt;</span>
-        <input id="msg-input" type="text" maxlength="500" placeholder="type a message, @nick or /command…" autocomplete="off" />
-        <button id="send-btn">SEND</button>
+        <input id="msg-input" type="text" maxlength="500" placeholder="type a message, @nick or /command…" data-i18n-placeholder="input.placeholder" autocomplete="off" />
+        <button id="send-btn" data-i18n="input.send">SEND</button>
       </div>
       <div id="dropdown-menu"></div>
     </div>
@@ -71,6 +75,7 @@
   <div class="vignette"></div>
   <div id="status"></div>
 
+  <script src="js/i18n.js"></script>
   <script src="js/script.js"></script>
   
   <script>
