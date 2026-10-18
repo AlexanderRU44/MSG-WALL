@@ -61,7 +61,7 @@ nick_last_change = {}
 NICK_COOLDOWN = 600
 
 # --- Reserved nicks ---
-RESERVED = {"admin", "unknown", "anon", "system", "root", "me", "null"}
+RESERVED = {"admin", "unknown", "anon", "system", "root", "me", "null", "administrator"}
 
 
 # ============ Crypto helpers ============
@@ -349,7 +349,7 @@ class Handler(BaseHTTPRequestHandler):
                 "hash": h,
                 "nick": _cache["nicks"].get(h),
                 "is_admin": is_admin,
-                "bans": _cache["bans"]  # <-- Отдаем список банов на сайт
+                "bans": _cache["bans"]
             })
 
         if self.path == "/post":
@@ -369,6 +369,10 @@ class Handler(BaseHTTPRequestHandler):
                 "nick": current_nick,
                 "text": text,
             }
+            
+            # Если пишет админ, ставим флаг
+            if is_admin:
+                record["admin"] = True
             
             if reply_to:
                 record["reply_to"] = reply_to
