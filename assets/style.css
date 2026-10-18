@@ -375,7 +375,6 @@ h1 {
   #input-area .input-row { gap: 8px; }
   #input-area button { padding: 6px 10px; }
 }
-/* Стили для админских сообщений */
 .msg.admin-msg {
   background: rgba(255, 212, 59, 0.05);
   border-left-color: #ffd43b;
@@ -385,50 +384,6 @@ h1 {
   text-shadow: 0 0 6px #ffd43b;
 }
 
-/* Всплывающее меню */
 #admin-context-menu .menu-item:hover {
   background: rgba(255, 255, 255, 0.1);
-}
-
-/* ============ Language switcher ============ */
-.lang-switch {
-  margin-top: 10px;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  letter-spacing: 1px;
-}
-
-.lang-switch button {
-  background: transparent;
-  border: 1px solid #333333;
-  color: #888888;
-  font-family: inherit;
-  font-size: 12px;
-  letter-spacing: 1px;
-  padding: 3px 8px;
-  cursor: pointer;
-  border-radius: 3px;
-  transition: color 0.15s, border-color 0.15s, background 0.15s;
-  -webkit-tap-highlight-color: transparent;
-}
-
-.lang-switch button:hover {
-  color: #ffffff;
-  border-color: #666666;
-}
-
-.lang-switch button.active {
-  color: #ffffff;
-  border-color: #888888;
-  background: rgba(255, 255, 255, 0.05);
-  text-shadow: 0 0 6px rgba(255, 255, 255, 0.35);
-}
-
-.lang-sep {
-  color: #333333;
-  font-size: 11px;
-  user-select: none;
 }
