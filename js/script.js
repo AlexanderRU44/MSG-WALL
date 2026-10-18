@@ -104,15 +104,17 @@ async function typeCentered(el, text, charMin, charMax) {
 // ============ State ============
 let codeValue = "";
 let isAdminMode = false;
-let unlocked = false;
 let sessionCode = null;
 let myHash = null;
 let myNick = null;
 let nicksMap = {};
-let bansMap = {}; 
-let renderedCount = -1;
-let allItems = [];
-let isPrinting = false;
+let bansMap = {};
+let renderedCount = 0;         // сколько сообщений сейчас в DOM
+let allItems = [];             // последний известный снимок с сервера
+let isPrinting = false;        // идёт анимация печати
+let isRefreshing = false;      // идёт цикл refresh (мьютекс)
+let isSending = false;         // идёт отправка
+let lastRenderedWhes = [];     // список when'ов в DOM, для проверки удаления
 
 // ============ DOM ============
 const sloganEl  = document.getElementById("slogan");
@@ -128,7 +130,6 @@ const sendBtn   = document.getElementById("send-btn");
 const dropdownMenu = document.getElementById("dropdown-menu");
 const hiddenInput = document.getElementById("hidden-input");
 
-// Создаем контекстное меню
 const contextMenu = document.createElement("div");
 contextMenu.id = "admin-context-menu";
 contextMenu.style.cssText = "display: none; position: fixed; background: #141414; border: 1px solid #333; border-radius: 4px; box-shadow: 0 4px 12px rgba(0,0,0,0.8); z-index: 1000; padding: 8px 0; min-width: 150px;";
@@ -161,7 +162,6 @@ if (urlParams.has('admin')) {
           bansMap = res.bans || {};
           myHash = res.hash;
           myNick = res.nick;
-          unlocked = true;  // ← КЛЮЧЕВОЙ ФИКС: включаем refresh для админа
           gateEl.classList.remove("visible");
           loadingEl.classList.remove("hidden");
           await typeCentered(loadingEl, "admin mode activated…", 40, 90);
@@ -174,8 +174,7 @@ if (urlParams.has('admin')) {
             allItems = [];
             nicksMap = {};
           }
-          await renderMessages(allItems);
-          renderedCount = allItems.length;
+          await fullRender(allItems);
           metaEl.innerHTML = PROMPT_HTML + "total messages: " + allItems.length;
           inputArea.classList.add("visible");
           msgInput.focus();
@@ -187,7 +186,6 @@ if (urlParams.has('admin')) {
     });
   }
 } else {
-  // Обычный режим
   document.addEventListener("paste", (e) => {
     if (!gateEl.classList.contains("visible")) return;
     const pasted = (e.clipboardData || window.clipboardData).getData("text");
@@ -266,7 +264,7 @@ function buildMessageHTML(m, idx) {
   const c = colorForHash(m.ip_hash);
   const a = authorLabelFor(m);
   const when = formatLocalFromUTC(m.when || "");
-  
+
   let replyHtml = "";
   if (m.reply_to) {
     let targetHash = m.reply_to;
@@ -293,73 +291,94 @@ function buildMessageHTML(m, idx) {
   `;
 }
 
+// Печать одного сообщения. Возвращает true, если напечатала.
 async function animatePrintMessage(m) {
+  if (isPrinting) return false;
   isPrinting = true;
-  const div = document.createElement("div");
-  if (m.system || m.admin) {
-    const who = m.admin ? "@Administrator " : "";
-    div.className = "msg system";
-    div.dataset.when = m.when;
-    div.innerHTML = `<span class="when">${escapeHtml(formatLocalFromUTC(m.when || ""))}</span> <span class="text"></span>`;
-    messagesEl.appendChild(div);
-    scrollToBottom();
-    const textEl = div.querySelector(".text");
-    const fullText = who + (m.text || "");
-    for (let i = 0; i < fullText.length; i++) {
-      textEl.textContent += fullText[i];
+  try {
+    const div = document.createElement("div");
+    if (m.system || m.admin) {
+      const who = m.admin ? "@Administrator " : "";
+      div.className = "msg system";
+      div.dataset.when = m.when;
+      div.innerHTML = `<span class="when">${escapeHtml(formatLocalFromUTC(m.when || ""))}</span> <span class="text"></span>`;
+      messagesEl.appendChild(div);
       scrollToBottom();
-      await sleep(rand(15, 40));
-    }
-    textEl.innerHTML = renderSystemText(fullText);
-  } else {
-    const c = colorForHash(m.ip_hash);
-    const a = authorLabelFor(m);
-    const when = formatLocalFromUTC(m.when || "");
-    let replyHtml = "";
-    if (m.reply_to) {
-      let targetHash = m.reply_to;
-      for (const [hash, nick] of Object.entries(nicksMap)) {
-        if (nick === m.reply_to) { targetHash = hash; break; }
+      const textEl = div.querySelector(".text");
+      const fullText = who + (m.text || "");
+      for (let i = 0; i < fullText.length; i++) {
+        textEl.textContent += fullText[i];
+        scrollToBottom();
+        await sleep(rand(15, 40));
       }
-      const targetColor = colorForHash(targetHash).accent;
-      replyHtml = `<span class="reply-arrow">→</span><span class="reply-target" style="color: ${targetColor};">@${escapeHtml(m.reply_to)}</span>`;
-    }
-    
-    div.className = "msg";
-    div.dataset.when = m.when;
-    div.style.setProperty("--accent", c.accent);
-    div.style.display = "flex";
-    div.style.flexWrap = "wrap";
-    div.style.alignItems = "baseline";
-    div.style.gap = "4px";
-    div.innerHTML = `
-      <span class="when">${escapeHtml(when)}</span>
-      <span class="who">${escapeHtml(a.text)}</span>
-      ${replyHtml}
-      <span class="text"></span>
-    `;
-    messagesEl.appendChild(div);
-    scrollToBottom();
-    const textEl = div.querySelector(".text");
-    const text = m.text || "";
-    for (let i = 0; i < text.length; i++) {
-      textEl.textContent += text[i];
+      textEl.innerHTML = renderSystemText(fullText);
+    } else {
+      const c = colorForHash(m.ip_hash);
+      const a = authorLabelFor(m);
+      const when = formatLocalFromUTC(m.when || "");
+      let replyHtml = "";
+      if (m.reply_to) {
+        let targetHash = m.reply_to;
+        for (const [hash, nick] of Object.entries(nicksMap)) {
+          if (nick === m.reply_to) { targetHash = hash; break; }
+        }
+        const targetColor = colorForHash(targetHash).accent;
+        replyHtml = `<span class="reply-arrow">→</span><span class="reply-target" style="color: ${targetColor};">@${escapeHtml(m.reply_to)}</span>`;
+      }
+
+      div.className = "msg";
+      div.dataset.when = m.when;
+      div.style.setProperty("--accent", c.accent);
+      div.style.display = "flex";
+      div.style.flexWrap = "wrap";
+      div.style.alignItems = "baseline";
+      div.style.gap = "4px";
+      div.innerHTML = `
+        <span class="when">${escapeHtml(when)}</span>
+        <span class="who">${escapeHtml(a.text)}</span>
+        ${replyHtml}
+        <span class="text"></span>
+      `;
+      messagesEl.appendChild(div);
       scrollToBottom();
-      await sleep(rand(15, 40));
+      const textEl = div.querySelector(".text");
+      const text = m.text || "";
+      for (let i = 0; i < text.length; i++) {
+        textEl.textContent += text[i];
+        scrollToBottom();
+        await sleep(rand(15, 40));
+      }
     }
+    return true;
+  } finally {
+    isPrinting = false;
   }
-  isPrinting = false;
 }
 
-async function renderMessages(items) {
+// Полная перерисовка. Возвращает true, если DOM обновлён.
+function renderMessages(items) {
+  if (isPrinting) return false;
   if (items.length === 0) {
     messagesEl.innerHTML = '<div class="tline"><span class="dim">&gt; no messages yet_</span></div>';
-    return;
+    renderedCount = 0;
+    lastRenderedWhes = [];
+    return true;
   }
-  if (isPrinting) return;
   messagesEl.innerHTML = items.map((m, i) => buildMessageHTML(m, i)).join("");
   renderedCount = items.length;
+  lastRenderedWhes = items.map(m => m.when);
   scrollToBottom();
+  return true;
+}
+
+// Полная перерисовка с учётом isPrinting: ждёт, пока печать завершится.
+async function fullRender(items) {
+  let tries = 0;
+  while (isPrinting && tries < 100) {
+    await sleep(100);
+    tries++;
+  }
+  renderMessages(items);
 }
 
 async function printLocalStatus(textLines) {
@@ -388,15 +407,15 @@ async function printLocalStatus(textLines) {
 window.showAdminMenu = function(e, when, hash) {
   if (!isAdminMode) return;
   e.stopPropagation();
-  
+
   const isBanned = bansMap[hash] === true;
   const banText = isBanned ? "Разбанить пользователя" : "Забанить пользователя";
-  
+
   contextMenu.innerHTML = `
     <div class="menu-item" onclick="deleteMsg('${when}')" style="padding: 10px 16px; cursor: pointer; color: #ff6b6b;">Удалить сообщение</div>
     <div class="menu-item" onclick="toggleBan('${hash}')" style="padding: 10px 16px; cursor: pointer; color: #ffa94d;">${banText}</div>
   `;
-  
+
   const rect = e.target.getBoundingClientRect();
   contextMenu.style.display = "block";
   contextMenu.style.left = Math.min(rect.left, window.innerWidth - 200) + "px";
@@ -415,7 +434,14 @@ async function eraseElement(el) {
   el.style.transition = "opacity 0.3s";
   el.style.opacity = "0";
   await sleep(300);
-  el.remove();
+  if (el.parentNode) el.parentNode.removeChild(el);
+}
+
+// Пересчитывает renderedCount и lastRenderedWhes из DOM
+function syncRenderedFromDOM() {
+  const els = messagesEl.querySelectorAll(".msg:not(.local-status)");
+  renderedCount = els.length;
+  lastRenderedWhes = Array.from(els).map(el => el.dataset.when).filter(Boolean);
 }
 
 window.deleteMsg = async function(whenStr) {
@@ -434,7 +460,7 @@ window.deleteMsg = async function(whenStr) {
     }
     try {
       allItems = await fetchMessages();
-      renderedCount = allItems.length;
+      await fullRender(allItems);
       metaEl.innerHTML = PROMPT_HTML + "total messages: " + allItems.length;
     } catch(e){}
   } else {
@@ -446,15 +472,14 @@ window.toggleBan = async function(hash) {
   contextMenu.style.display = "none";
   const isBanned = bansMap[hash] === true;
   const endpoint = isBanned ? "/admin/unban" : "/admin/ban";
-  
+
   const res = await apiPost(endpoint, { code: sessionCode, hash: hash });
   if (res.ok) {
     bansMap[hash] = !isBanned;
     alert(isBanned ? "Пользователь разбанен" : "Пользователь забанен");
     try {
       allItems = await fetchMessages();
-      renderMessages(allItems);
-      renderedCount = allItems.length;
+      await fullRender(allItems);
     } catch(e){}
   } else {
     alert("Ошибка");
@@ -487,7 +512,7 @@ async function submitCode() {
     }
     codeValue = ""; if (hiddenInput) hiddenInput.value = ""; updateDigitsUI(); return;
   }
-  unlocked = true; sessionCode = code; myHash = res.hash; myNick = res.nick; bansMap = res.bans || {};
+  sessionCode = code; myHash = res.hash; myNick = res.nick; bansMap = res.bans || {};
   codeValue = ""; if (hiddenInput) hiddenInput.value = ""; updateDigitsUI();
   gateEl.classList.remove("visible");
   loadingEl.textContent = ""; loadingEl.classList.remove("hidden");
@@ -500,8 +525,7 @@ async function submitCode() {
     allItems = [];
     nicksMap = {};
   }
-  await renderMessages(allItems);
-  renderedCount = allItems.length;
+  await fullRender(allItems);
   metaEl.innerHTML = PROMPT_HTML + "total messages: " + allItems.length;
   inputArea.classList.add("visible");
   if (msgInput) msgInput.focus();
@@ -580,7 +604,9 @@ document.addEventListener("click", (e) => {
 
 // ============ Send ============
 async function sendMessage() {
+  if (isSending) return;
   const rawText = msgInput.value.trim(); if (!rawText || !sessionCode) return;
+
   if (rawText.startsWith("/")) {
     const parts = rawText.split(" "); const cmd = parts[0].toLowerCase(); const arg = parts.slice(1).join(" ").trim();
     if (cmd === "/help") { msgInput.value = ""; printLocalStatus(["Commands:", "/nick <name> — change nick", "/online — online users"]); return; }
@@ -598,69 +624,102 @@ async function sendMessage() {
       try {
         nicksMap = await fetchNicks();
         allItems = await fetchMessages();
-        renderMessages(allItems);
-        renderedCount = allItems.length;
+        await fullRender(allItems);
         metaEl.innerHTML = PROMPT_HTML + "total messages: " + allItems.length;
       } catch (e) {}
       return;
     }
     msgInput.value = ""; printLocalStatus(["error: unknown command"]); return;
   }
+
   let replyTo = null; let textToSend = rawText;
   const match = rawText.match(/^@([a-zA-Z0-9_\-а-яА-Я]+)\s+(.+)$/);
-  if (match) { const targetNick = match[1]; const remainingText = match[2]; if (Object.values(nicksMap).includes(targetNick)) { replyTo = targetNick; textToSend = remainingText; } }
-  sendBtn.disabled = true; msgInput.value = "";
-  const payload = { code: sessionCode, text: textToSend }; if (replyTo) payload.reply_to = replyTo;
-  const res = await apiPost("/post", payload); sendBtn.disabled = false;
-  if (!res.ok) { printLocalStatus(["> error: " + res.reason]); return; }
+  if (match) {
+    const targetNick = match[1]; const remainingText = match[2];
+    if (Object.values(nicksMap).includes(targetNick)) { replyTo = targetNick; textToSend = remainingText; }
+  }
+
+  isSending = true;
+  sendBtn.disabled = true;
+  msgInput.value = "";
+
+  const payload = { code: sessionCode, text: textToSend };
+  if (replyTo) payload.reply_to = replyTo;
+  const res = await apiPost("/post", payload);
+
+  if (!res.ok) {
+    isSending = false;
+    sendBtn.disabled = false;
+    printLocalStatus(["> error: " + res.reason]);
+    return;
+  }
+
   try {
-    const newItems = await fetchMessages(); const oldCount = allItems.length; const newMessages = newItems.slice(oldCount);
+    const newItems = await fetchMessages();
+    // Печатаем только то, чего ещё нет в DOM
+    const domWhes = new Set(lastRenderedWhes);
+    const toPrint = newItems.filter(m => !domWhes.has(m.when));
     allItems = newItems;
+    for (const m of toPrint) {
+      await animatePrintMessage(m);
+      await sleep(200);
+    }
+    syncRenderedFromDOM();
     metaEl.innerHTML = PROMPT_HTML + "total messages: " + allItems.length;
-    for (const m of newMessages) { await animatePrintMessage(m); await sleep(300); }
-    renderedCount = allItems.length;
-  } catch (e) {}
+  } catch (e) {
+    // если fetch упал — попробуем ещё раз через refresh
+  }
+
+  isSending = false;
+  sendBtn.disabled = false;
 }
 if (sendBtn) sendBtn.addEventListener("click", sendMessage);
 
 // ============ Periodic refresh ============
 async function refresh() {
-  // Работает и для пользователя, и для админа — как только есть сессия
   if (!sessionCode) return;
-  if (isPrinting) return;
+  if (isRefreshing) return;   // мьютекс
+  if (isSending) return;      // не мешаем отправке
+  isRefreshing = true;
   try {
     const items = await fetchMessages();
-    
+
     if (items.length < renderedCount) {
-      // Удаление (возможно, админом)
+      // Удаление
       const newWhes = new Set(items.map(m => m.when));
       const msgEls = messagesEl.querySelectorAll(".msg");
-      
       for (const el of msgEls) {
-        if (!newWhes.has(el.dataset.when)) {
+        if (el.classList.contains("local-status")) continue;
+        const when = el.dataset.when;
+        if (when && !newWhes.has(when)) {
           await eraseElement(el);
         }
       }
       allItems = items;
-      renderedCount = items.length;
+      syncRenderedFromDOM();
       metaEl.innerHTML = PROMPT_HTML + "total messages: " + allItems.length;
     } else if (items.length > renderedCount) {
-      // Новые сообщения
-      const newMessages = items.slice(renderedCount);
+      // Новые
+      const domWhes = new Set(lastRenderedWhes);
+      const toPrint = items.filter(m => !domWhes.has(m.when));
       allItems = items;
-      // Обновляем ники перед печатью новых сообщений
+      // Обновляем ники перед печатью
       try { nicksMap = await fetchNicks(); } catch (e) {}
-      for (const m of newMessages) { await animatePrintMessage(m); await sleep(300); }
+      for (const m of toPrint) {
+        await animatePrintMessage(m);
+        await sleep(200);
+      }
+      syncRenderedFromDOM();
       metaEl.innerHTML = PROMPT_HTML + "total messages: " + allItems.length;
-      renderedCount = items.length;
     } else {
-      // Ничего не изменилось, но ники могли обновиться
       allItems = items;
     }
-    
+
     document.getElementById("status").textContent = "// updated: " + nowLocalString();
   } catch (e) {
     document.getElementById("status").textContent = "// load error: " + e.message;
+  } finally {
+    isRefreshing = false;
   }
 }
 
@@ -685,5 +744,4 @@ async function bootstrap() {
 }
 bootstrap();
 
-// Запускаем интервал сразу (он сам проверит sessionCode)
 startRefreshInterval();
