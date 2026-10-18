@@ -170,9 +170,6 @@ if (urlParams.has('admin')) {
           renderMessages(allItems);
           inputArea.classList.add("visible");
           msgInput.focus();
-          
-          // Запускаем обновление и для админа
-          setInterval(refresh, REFRESH_MS);
         } else {
           alert("Access denied");
           adminInput.value = "";
@@ -379,7 +376,6 @@ async function printLocalStatus(textLines) {
 }
 
 // ============ Контекстное меню админа ============
-// Используем 'when' (время сообщения) как уникальный идентификатор вместо индекса
 window.showAdminMenu = function(e, when, hash) {
   if (!isAdminMode) return;
   e.stopPropagation();
@@ -398,7 +394,6 @@ window.showAdminMenu = function(e, when, hash) {
   contextMenu.style.top = (rect.bottom + 10) + "px";
 };
 
-// ==== Анимация стирания ====
 async function eraseElement(el) {
   const textEl = el.querySelector(".text");
   if (textEl) {
@@ -414,11 +409,8 @@ async function eraseElement(el) {
   el.remove();
 }
 
-// Удаление сообщения (по времени)
 window.deleteMsg = async function(whenStr) {
   contextMenu.style.display = "none";
-  
-  // Находим индекс этого сообщения в текущем массиве
   const idx = allItems.findIndex(m => m.when === whenStr);
   if (idx === -1) return;
 
@@ -489,8 +481,6 @@ async function submitCode() {
   inputArea.classList.add("visible");
   if (msgInput) msgInput.focus();
   setTimeout(adjustHeight, 100);
-  
-  setInterval(refresh, REFRESH_MS);
 }
 
 if (keypadEl) {
@@ -608,7 +598,6 @@ async function refresh() {
     const items = await fetchMessages();
     
     if (items.length < renderedCount) {
-      // Если сообщений стало меньше, находим удаленные и стираем их
       const newWhes = new Set(items.map(m => m.when));
       const msgEls = messagesEl.querySelectorAll(".msg");
       
@@ -621,7 +610,6 @@ async function refresh() {
       renderedCount = items.length;
       metaEl.innerHTML = PROMPT_HTML + "total messages: " + allItems.length;
     } else if (items.length > renderedCount) {
-      // Если новых сообщений больше, печатаем их
       const newMessages = items.slice(renderedCount);
       allItems = items;
       for (const m of newMessages) { await animatePrintMessage(m); await sleep(300); }
@@ -632,6 +620,14 @@ async function refresh() {
     
     document.getElementById("status").textContent = "// updated: " + nowLocalString();
   } catch (e) { document.getElementById("status").textContent = "// load error: " + e.message; }
+}
+
+// ============ Запуск интервала (для всех) ============
+let refreshIntervalSet = false;
+function startRefreshInterval() {
+  if (refreshIntervalSet) return;
+  refreshIntervalSet = true;
+  setInterval(refresh, REFRESH_MS);
 }
 
 // ============ Bootstrap ============
@@ -646,3 +642,6 @@ async function bootstrap() {
   updateDigitsUI();
 }
 bootstrap();
+
+// Запускаем интервал сразу (он сам проверит unlocked)
+startRefreshInterval();
